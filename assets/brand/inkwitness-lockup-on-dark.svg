@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 790 114" role="img" aria-label="InkWitness, every document has a story"><title>InkWitness</title><g transform="translate(16,10) scale(.62)">
+  <!-- The documented page is the underlying record. -->
+  <path d="M39 18.5H81.5L100.5 37.5V101.5C100.5 104.3 98.3 106.5 95.5 106.5H39C36.2 106.5 34 104.3 34 101.5V23.5C34 20.7 36.2 18.5 39 18.5Z" fill="#F9FCFF"/>
+  <path d="M81.5 18.5V35.5C81.5 37.2 82.8 38.5 84.5 38.5H100.5" fill="none" stroke="#B5D9FF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M46 45.5H72M46 55H78" fill="none" stroke="#A7CEFA" stroke-width="4.1" stroke-linecap="round"/>
+  <!-- This blue ink feather gives the eye its written provenance. -->
+  <path d="M29 27.5C14.5 39.5 9.5 62.5 19 83.5C29.5 75 41.5 58.5 36.3 42.4C34.5 36.5 32.5 31 29 27.5Z" fill="#398AF7"/>
+  <path d="M29 27.5C33 45.5 26.1 64.5 17.5 90.5" fill="none" stroke="#D8EAFF" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M20.7 46.8L34.3 53.9M17.5 62.6L29.6 69.7" fill="none" stroke="#1661C8" stroke-width="2.1" stroke-linecap="round" opacity="0.75"/>
+  <!-- An eye, rather than a policing shield, represents witnessed development. -->
+  <path d="M43 81.1C54.6 66.1 83 66.1 95.2 81.1C83 96.4 55.5 96.4 43 81.1Z" fill="#FFFFFF" stroke="#13213A" stroke-width="4.2" stroke-linejoin="round"/>
+  <circle cx="69.2" cy="81.1" r="10.9" fill="#3685F5"/>
+  <circle cx="69.2" cy="81.1" r="5.3" fill="#142746"/>
+  <circle cx="65.5" cy="77.2" r="2.4" fill="#FFFFFF"/>
+  <path d="M20 99.3C27.5 104.5 36.1 106.1 48.5 103.9" fill="none" stroke="#8DC6FF" stroke-width="3.2" stroke-linecap="round"/>
+</g><text x="113" y="71" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="54" font-weight="800" letter-spacing="-2.4" fill="white">Ink<tspan fill="#8DC6FF">Witness</tspan></text><text x="116" y="97" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="3.1" fill="#BCD3EE">EVERY DOCUMENT HAS A STORY.</text></svg>

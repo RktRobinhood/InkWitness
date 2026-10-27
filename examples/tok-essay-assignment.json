@@ -1,0 +1,19 @@
+{
+  "schema": "urn:workalone:assignment",
+  "schemaVersion": "1.0",
+  "assignmentId": "tok-essay-writing-day-demo",
+  "assessmentTitle": "TOK Essay",
+  "school": {"name": "Ikast-Brande Gymnasium", "publicWebsite": "https://www.ikast-gym.dk/"},
+  "academicIntegrityPolicy": {
+    "version": "IBG-public-academic-integrity-March-2025-check-with-school",
+    "url": "https://www.ikast-gym.dk/ib/more-about-the-ib/policies",
+    "summary": "Your essay must be independently produced, sources must be acknowledged, and unauthorized AI drafting or substantive rewriting is not permitted. This editor records selected writing-process events and embeds them in the exported DOCX.",
+    "attestationText": "I confirm that this is my own work, that I have acknowledged outside sources and any AI assistance as required by my teacher and school policy, and that I understand the file includes an editing history of this session."
+  },
+  "aiAssistance": "not-permitted",
+  "permittedAssistanceDetails": null,
+  "requirements": {"studentFullName": true, "assessmentTitle": true, "classOrGroup": false, "studentCode": false, "watermark": "name-date-attempt", "firstExportDeclaration": true},
+  "clipboardPolicy": "allow-record",
+  "largePasteCharacterThreshold": 150,
+  "fields": [{"fieldId": "tok-essay", "label": "TOK Essay", "kind": "richtext", "required": true, "wordTarget": null}]
+}

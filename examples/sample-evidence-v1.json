@@ -1,0 +1,138 @@
+{
+  "schema": "urn:workalone:evidence",
+  "schemaVersion": "1.0",
+  "writerVersion": "example-not-a-working-writer",
+  "assignmentId": "tok-essay-writing-day-demo",
+  "attemptId": "123e4567-e89b-42d3-a456-426614174000",
+  "student": {
+    "displayName": "Example Student",
+    "studentCode": null,
+    "classOrGroup": null,
+    "enteredAtLocal": "2026-10-27T09:00:00+01:00",
+    "identityAuthenticated": false,
+    "assessmentTitle": "TOK Essay",
+    "dateDisplayedInHeader": "2026-10-27",
+    "watermarkStyle": "name-date-attempt",
+    "identityEnteredByStudent": true
+  },
+  "policy": {
+    "aiAssistance": "not-permitted",
+    "clipboard": "allow-record",
+    "policyVersion": "IBG-public-academic-integrity-March-2025-check-with-school",
+    "acknowledgedAtLocal": "2026-10-27T10:00:00+01:00",
+    "authorizedAIAssistance": null,
+    "acknowledgmentText": "I confirm that this is my own work, that I have acknowledged outside sources and any AI assistance as required by my teacher and school policy, and that I understand the file includes an editing history of this session.",
+    "acknowledgmentKind": "student-unverified-checkbox",
+    "policySourceUrl": "https://www.ikast-gym.dk/ib/more-about-the-ib/policies"
+  },
+  "sections": [
+    {
+      "sectionId": "main",
+      "title": "TOK Essay",
+      "fields": [
+        {
+          "fieldId": "tok-essay",
+          "kind": "richtext",
+          "title": "TOK Essay"
+        }
+      ]
+    }
+  ],
+  "sessionSpans": [
+    {
+      "spanId": "span-synthetic-001",
+      "startedAtLocal": "2026-10-27T09:00:00+01:00",
+      "endedAtLocal": "2026-10-27T10:00:00+01:00",
+      "startedElapsedMs": 0,
+      "attemptId": "123e4567-e89b-42d3-a456-426614174000",
+      "reason": "new"
+    }
+  ],
+  "events": [
+    {
+      "eventId": "123e4567-e89b-42d3-a456-426614174001",
+      "attemptId": "123e4567-e89b-42d3-a456-426614174000",
+      "sessionSpanId": "span-synthetic-001",
+      "seq": 1,
+      "fieldId": "tok-essay",
+      "sectionId": "main",
+      "type": "paste",
+      "origin": "clipboard",
+      "atLocalIso": "2026-10-27T09:05:00+01:00",
+      "elapsedMonotonicMs": 300000,
+      "gestureId": "gesture-demo-paste-1",
+      "pasteGestureId": "gesture-demo-paste-1",
+      "beforeAnchor": {
+        "blockId": "para-0001",
+        "startOffset": 0,
+        "endOffset": 0,
+        "contextHash": null,
+        "state": "before"
+      },
+      "afterAnchor": {
+        "blockId": "para-0001",
+        "startOffset": 0,
+        "endOffset": 21,
+        "contextHash": null,
+        "state": "after"
+      },
+      "ops": [
+        {
+          "kind": "insert_text",
+          "blockId": "para-0001",
+          "offset": 0,
+          "text": "Synthetic essay text."
+        }
+      ],
+      "insertedText": "Synthetic essay text.",
+      "deletedText": null,
+      "clipboardTypes": [
+        "text/plain"
+      ],
+      "sourceHint": null,
+      "sourceStatus": "unknown",
+      "priorEventDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "eventDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "checkpoints": [
+    {
+      "afterSeq": 1,
+      "canonicalDocumentStateDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "compressedStateBase64": ""
+    }
+  ],
+  "diagnostics": [
+    {
+      "findingId": "flag-synthetic-001",
+      "category": "observed-event",
+      "ruleId": "wa.clipboard.real-paste.v1",
+      "ruleVersion": "1.0",
+      "eventRefs": [
+        "123e4567-e89b-42d3-a456-426614174001"
+      ],
+      "fieldId": "tok-essay",
+      "anchor": {
+        "blockId": "para-0001",
+        "startOffset": 0,
+        "endOffset": 21,
+        "contextHash": null,
+        "state": "after"
+      },
+      "summary": "One paste gesture was observed. The source application is unknown.",
+      "limitations": "Synthetic example; not verified student activity or a source attribution.",
+      "matchedPhrases": [],
+      "confidenceMeaning": "observed-in-editor"
+    }
+  ],
+  "export": {
+    "finalSeq": 1,
+    "exportedAtLocal": "2026-10-27T10:00:00+01:00",
+    "recordedStateDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "integrityType": "unsigned-local-chain",
+    "exporterCommit": null,
+    "contentNormalizerVersion": "example-only",
+    "independentReceiptStatus": "not-collected",
+    "selfHashCaveat": "Unsigned local evidence; not proof of authenticity"
+  }
+}

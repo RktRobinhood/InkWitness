@@ -1,0 +1,607 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:workalone:evidence:1.0",
+  "title": "Work Alone Essay Edition embedded replay evidence v1",
+  "description": "Design-time interchange schema; event op format, canonicalization and hashing must be frozen and cross-language tested during G0. The synthetic example demonstrates structure but contains illustrative hashes, not authentic receipts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "assignmentId",
+    "attemptId",
+    "student",
+    "policy",
+    "sections",
+    "sessionSpans",
+    "events",
+    "checkpoints",
+    "diagnostics",
+    "export"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:workalone:evidence"
+    },
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "writerVersion": {
+      "type": "string"
+    },
+    "assignmentId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attemptId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "student": {
+      "type": "object",
+      "required": [
+        "displayName",
+        "enteredAtLocal",
+        "studentCode"
+      ],
+      "properties": {
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "studentCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "classOrGroup": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enteredAtLocal": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "identityAuthenticated": {
+          "const": false
+        },
+        "assessmentTitle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dateDisplayedInHeader": {
+          "type": "string",
+          "format": "date"
+        },
+        "watermarkStyle": {
+          "enum": [
+            "name-date-attempt",
+            "attempt-date",
+            "none"
+          ]
+        },
+        "identityEnteredByStudent": {
+          "const": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "aiAssistance",
+        "clipboard",
+        "policyVersion",
+        "acknowledgedAtLocal"
+      ],
+      "properties": {
+        "aiAssistance": {
+          "enum": [
+            "not-permitted",
+            "teacher-approved-limited",
+            "permitted"
+          ]
+        },
+        "clipboard": {
+          "enum": [
+            "allow-record",
+            "warn-record",
+            "block"
+          ]
+        },
+        "policyVersion": {
+          "type": "string"
+        },
+        "acknowledgedAtLocal": {
+          "type": "string",
+          "format": "date-time",
+          "description": "First manual DOCX export declaration timestamp; never gate IndexedDB autosaves."
+        },
+        "authorizedAIAssistance": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "acknowledgmentText": {
+          "type": "string",
+          "description": "The exact student-visible attestation accepted at first intentional export."
+        },
+        "acknowledgmentKind": {
+          "enum": [
+            "student-unverified-checkbox"
+          ]
+        },
+        "policySourceUrl": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "sectionId",
+          "fields"
+        ],
+        "properties": {
+          "sectionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "fieldId",
+                "kind"
+              ],
+              "properties": {
+                "fieldId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "enum": [
+                    "richtext",
+                    "shorttext",
+                    "table",
+                    "image",
+                    "math",
+                    "other"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sessionSpans": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "spanId",
+          "startedAtLocal",
+          "attemptId",
+          "startedElapsedMs"
+        ],
+        "properties": {
+          "spanId": {
+            "type": "string"
+          },
+          "startedAtLocal": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAtLocal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "startedElapsedMs": {
+            "type": "number",
+            "minimum": 0
+          },
+          "attemptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "enum": [
+              "new",
+              "resume",
+              "recovery",
+              "import"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    },
+    "checkpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "afterSeq",
+          "canonicalDocumentStateDigest",
+          "compressedStateBase64"
+        ],
+        "properties": {
+          "afterSeq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "canonicalDocumentStateDigest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "compressedStateBase64": {
+            "type": "string",
+            "contentEncoding": "base64"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    },
+    "export": {
+      "type": "object",
+      "required": [
+        "finalSeq",
+        "exportedAtLocal",
+        "recordedStateDigest",
+        "integrityType"
+      ],
+      "properties": {
+        "finalSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exportedAtLocal": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedStateDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "integrityType": {
+          "const": "unsigned-local-chain"
+        },
+        "exporterCommit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contentNormalizerVersion": {
+          "type": "string",
+          "description": "Versioned canonicalization for logical document diff after Word save."
+        },
+        "independentReceiptStatus": {
+          "enum": [
+            "not-collected",
+            "external-receipt-provided",
+            "checked-in-viewer"
+          ]
+        },
+        "selfHashCaveat": {
+          "const": "Unsigned local evidence; not proof of authenticity"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "anchor": {
+      "type": "object",
+      "required": [
+        "blockId",
+        "startOffset",
+        "endOffset"
+      ],
+      "properties": {
+        "blockId": {
+          "type": "string"
+        },
+        "startOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contextHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "enum": [
+            "before",
+            "after"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventId",
+        "attemptId",
+        "sessionSpanId",
+        "seq",
+        "fieldId",
+        "type",
+        "origin",
+        "atLocalIso",
+        "elapsedMonotonicMs",
+        "beforeAnchor",
+        "afterAnchor",
+        "ops",
+        "priorEventDigest",
+        "eventDigest"
+      ],
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attemptId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sessionSpanId": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sectionId": {
+          "type": "string"
+        },
+        "fieldId": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "text_insert",
+            "text_delete",
+            "text_replace",
+            "format_change",
+            "structure_change",
+            "paste",
+            "cut",
+            "internal_move",
+            "undo",
+            "redo",
+            "import_document",
+            "recovery",
+            "attempt_started",
+            "attempt_submitted",
+            "identity_change",
+            "focus_lost",
+            "focus_returned"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "keyboard",
+            "editor_command",
+            "clipboard",
+            "import",
+            "undo",
+            "system",
+            "unknown"
+          ]
+        },
+        "atLocalIso": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "elapsedMonotonicMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "gestureId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "beforeAnchor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/anchor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "afterAnchor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/anchor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ops": {
+          "type": "array",
+          "description": "Reversible typed document-model operations; exact sub-schema to be frozen after G0 editor spike",
+          "items": {
+            "type": "object"
+          }
+        },
+        "insertedText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deletedText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clipboardTypes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceHint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Not a verified source application; may be derived from supplied HTML links or explicit marker"
+        },
+        "sourceStatus": {
+          "enum": [
+            "unknown",
+            "self-declared",
+            "internal-copy-marker",
+            "not-applicable"
+          ]
+        },
+        "priorEventDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "eventDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "pasteGestureId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "If present, identifies the actual paste command and its committed operations."
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingId",
+        "category",
+        "ruleId",
+        "ruleVersion",
+        "eventRefs",
+        "summary",
+        "limitations"
+      ],
+      "properties": {
+        "findingId": {
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "observed-event",
+            "offline-text-pattern",
+            "source-overlap",
+            "data-consistency",
+            "teacher-note"
+          ]
+        },
+        "ruleId": {
+          "type": "string"
+        },
+        "ruleVersion": {
+          "type": "string"
+        },
+        "eventRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "fieldId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "anchor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/anchor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "limitations": {
+          "type": "string",
+          "minLength": 1
+        },
+        "matchedPhrases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidenceMeaning": {
+          "enum": [
+            "observed-in-editor",
+            "exact-source-match",
+            "advisory-pattern",
+            "unknown"
+          ],
+          "description": "Evidence category, NEVER authorship probability."
+        }
+      }
+    }
+  }
+}

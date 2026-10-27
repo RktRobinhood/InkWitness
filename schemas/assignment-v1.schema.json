@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:workalone:assignment:v1",
+  "title": "Work Alone essay assignment configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schemaVersion", "assignmentId", "assessmentTitle", "school", "academicIntegrityPolicy", "aiAssistance", "requirements", "fields"],
+  "properties": {
+    "schema": {"const": "urn:workalone:assignment"},
+    "schemaVersion": {"const": "1.0"},
+    "assignmentId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "assessmentTitle": {"type": "string", "minLength": 1, "maxLength": 200},
+    "school": {"type": "object", "additionalProperties": false, "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "publicWebsite": {"type": ["string", "null"]}}},
+    "academicIntegrityPolicy": {"type": "object", "additionalProperties": false, "required": ["version", "url", "summary", "attestationText"], "properties": {"version": {"type": "string"}, "url": {"type": "string", "format": "uri"}, "summary": {"type": "string"}, "attestationText": {"type": "string", "minLength": 20}}},
+    "aiAssistance": {"enum": ["not-permitted", "teacher-approved-limited", "permitted"]},
+    "permittedAssistanceDetails": {"type": ["string", "null"]},
+    "requirements": {"type": "object", "additionalProperties": false, "required": ["studentFullName", "assessmentTitle", "classOrGroup", "watermark", "firstExportDeclaration"], "properties": {"studentFullName": {"const": true}, "assessmentTitle": {"const": true}, "classOrGroup": {"type": "boolean"}, "studentCode": {"type": "boolean"}, "watermark": {"enum": ["name-date-attempt", "attempt-date", "none"]}, "firstExportDeclaration": {"const": true}}},
+    "clipboardPolicy": {"enum": ["allow-record", "warn-record", "block"]},
+    "largePasteCharacterThreshold": {"type": "integer", "minimum": 1, "maximum": 10000},
+    "fields": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["fieldId", "label", "kind", "required"], "properties": {"fieldId": {"type": "string", "minLength": 1}, "label": {"type": "string"}, "kind": {"enum": ["richtext", "shorttext", "math", "table", "attachment"]}, "required": {"type": "boolean"}, "wordTarget": {"type": ["integer", "null"], "minimum": 0}}}}
+  }
+}
