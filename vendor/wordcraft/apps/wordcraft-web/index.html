@@ -3,18 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-  <title>WordCraft</title>
-  <link data-trunk rel="icon" href="../../assets/app-icon/wordcraft.ico" />
+  <title>InkWitness</title>
+  <!-- InkWitness fork: product identity replaced (docs/BRANDING.md); based on WordCraft by the ArtCraft team. -->
+  <link data-trunk rel="icon" href="../../../../assets/brand/favicon.svg" />
   <link data-trunk rel="rust" data-bin="wordcraft-web" data-wasm-opt="z" data-weak-refs />
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #e6e6e6; }
-    #wordcraft_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-    #wordcraft_loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    #inkwitness_preview { position: absolute; top: 0; left: 0; right: 0; height: 28px; box-sizing: border-box; padding: 0 12px;
+      display: flex; align-items: center; gap: 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+      background: #fff7e8; border-bottom: 1px solid #EDBA69; color: #13213A; font: 13px Inter, "Segoe UI", Arial, sans-serif; }
+    #inkwitness_preview a { color: #1f63c9; }
+    #wordcraft_canvas { position: absolute; top: 28px; left: 0; right: 0; bottom: 0; width: 100%; height: calc(100% - 28px); display: block; }
+    #wordcraft_loading { position: absolute; inset: 28px 0 0 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
       color: #555; font: 14px system-ui, sans-serif; pointer-events: none; }
   </style>
 </head>
 <body>
+  <div id="inkwitness_preview" role="status">
+    <strong id="inkwitness_route">InkWitness</strong>
+    <span>&middot; Technical preview, not for student use. Writing history is not recorded yet.</span>
+    <a href="../">About</a>
+  </div>
   <canvas id="wordcraft_canvas"></canvas>
-  <div id="wordcraft_loading">Loading WordCraft&hellip;</div>
+  <div id="wordcraft_loading">Loading InkWitness&hellip;</div>
+  <script>
+    // /write/ and /review/ load the same bundle; name the page after its route.
+    (function () {
+      var review = /\/review(\/(index\.html)?)?$/.test(location.pathname);
+      var name = review ? 'InkWitness Review' : 'InkWitness Write';
+      document.title = name;
+      document.getElementById('inkwitness_route').textContent = name;
+    })();
+  </script>
 </body>
 </html>

@@ -1,0 +1,80 @@
+# Builds the WordCraft-based InkWitness WASM bundle and publishes it to GitHub Pages.
+# The published site is a G0 technical preview: every page says it is not for student use.
+# Pull requests build only. Pushes to main build and deploy.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Upstream WordCraft v0.11.0 declares rust-version 1.95.
+  RUST_TOOLCHAIN: "1.95"
+  TRUNK_VERSION: "0.22.1"
+  TRUNK_SHA256: "2ab8d548fd5ed9cda50906f61fd8654204e7893bd52ebbfd90533862b7d71ee1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }} and the wasm32 target
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target wasm32-unknown-unknown
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
+      - name: Install Trunk ${{ env.TRUNK_VERSION }} (checksum-pinned)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/trunk.tar.gz" \
+            "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${TRUNK_SHA256}  $RUNNER_TEMP/trunk.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar xzf "$RUNNER_TEMP/trunk.tar.gz" -C "$RUNNER_TEMP/bin" trunk
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cache/trunk
+            vendor/wordcraft/target
+          key: pages-${{ runner.os }}-rust${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('vendor/wordcraft/Cargo.lock') }}
+          restore-keys: pages-${{ runner.os }}-rust${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Validate specification and brand assets
+        run: python3 scripts/validate_starter.py
+
+      - name: Build site
+        run: scripts/build-pages.sh dist/pages
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist/pages
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

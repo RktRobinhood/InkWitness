@@ -3,8 +3,8 @@
 Status convention: `[ ]` not started, `[~]` underway, `[x]` verified. The specification is prepared; none of the application tasks below should be marked complete without actual test evidence.
 
 ## G0 - Stop/go technical spike (P0)
-- [ ] Clone canonical WordCraft and pin verified release/commit; preserve notices.
-- [ ] Build upstream WASM editor locally and serve it from localhost.
+- [x] Clone canonical WordCraft and pin verified release/commit; preserve notices. *2026-10-27: v0.11.0 = `e31f2f06a5f8004ceaa88f68c00b47908e321aa4`, full workspace subtree at `vendor/wordcraft/`; LICENSE-MIT/APACHE, NOTICE, ATTRIBUTION kept. See `docs/UPSTREAM_LOCK.md`.*
+- [x] Build upstream WASM editor locally and serve it from localhost. *2026-10-27: Rust 1.95.0 + Trunk 0.22.1; `trunk build --release` succeeded (cold 5m41s, 43 MB `-Oz` wasm). `scripts/build-pages.sh` output loaded in headless Chromium 1248 (SwiftShader WebGL2) under `/InkWitness/write/` and `/InkWitness/review/`: editor start screen rendered in about 2 s, zero off-origin requests. Real GPU browsers and school devices: NOT TESTED.*
 - [ ] Identify exact editable document transaction boundary; add and test event observer.
 - [ ] Correlate actual paste command -> `gestureId` -> committed document operations.
 - [ ] Export and reimport Custom XML in a valid DOCX; confirm existing Word revision behavior.
@@ -64,9 +64,9 @@ Status convention: `[ ]` not started, `[~]` underway, `[x]` verified. The specif
 
 ### Branding integration (part of G0/G1, before any public Pages release)
 
-- [ ] Inspect `docs/BRANDING.md` and inspect the upstream trademark license.
+- [x] Inspect `docs/BRANDING.md` and inspect the upstream trademark license. *2026-10-27: upstream `docs/brand/LICENSE-brand.txt` reviewed.*
 - [ ] Use existing original InkWitness SVGs/icons and wire product titles, favicon, loading screen and About/Credits.
-- [ ] Remove protected ArtCraft marks from the distributed modified WordCraft fork; retain source licenses, NOTICE, and upstream attribution.
+- [~] Remove protected ArtCraft marks from the distributed modified WordCraft fork; retain source licenses, NOTICE, and upstream attribution. *2026-10-27: 8 ArtCraft mark files deleted, About dialog and titles rebranded, Discord links hidden; remaining strings listed in `docs/UPSTREAM_LOCK.md`.*
 - [ ] Verify distinct Write/Review launchers while preserving functional editor toolbar icons.
 - [ ] Test GitHub Pages `/inkwitness/write/` and `/inkwitness/review/` path resolution plus small-size icon QA.
 
