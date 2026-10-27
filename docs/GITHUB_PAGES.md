@@ -23,7 +23,7 @@ The root `/` may show a neutral project home. WordCraft's bundle and its `.wasm`
 6. Disable third-party analytics, public telemetry endpoints and external clipboard/site callbacks. A strict CSP can block network `connect-src` by default, but must be tested with the actual WASM/worker/font assets. Network inspection should show **no essays or replay logs being transmitted**.
 7. Document a safe update path that does not silently discard IndexedDB drafts: schema migration, stable origin, backup/export warning and test across the previous build.
 
-A workflow for spec validation alone is at `.github/workflows/spec-check.yml`. Do not treat its green check as proof of application readiness.
+`.github/workflows/pages.yml` runs `scripts/validate_starter.py`, builds the WASM site with `scripts/build-pages.sh`, and deploys it on pushes to `main`. **Status, 27 October 2026:** the board asked for the site to be stood up during G0, so it is live as a **technical preview**. Every page carries a "not for student use, writing history is not recorded yet" banner. A green deploy proves the WASM bundle builds and loads under the `/InkWitness/` prefix. It does not prove the release gates above.
 
 ## Deployment smoke checks
 

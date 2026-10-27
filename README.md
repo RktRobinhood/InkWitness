@@ -11,7 +11,20 @@
 **Brand assets:** [Preview the icons and logo](assets/brand/preview.html) · [Brand usage and upstream replacement map](docs/BRANDING.md). Product routes are **InkWitness Write** and **InkWitness Review**; internal `urn:workalone:*` v1 wire-format identifiers remain intact until an explicitly versioned migration.
 
 
-> **Project status (27 October 2026): SPECIFICATION / REPOSITORY STARTER — V1 IN SCOPE; V2 IS A FUTURE ROADMAP ONLY.** This repository initially contains the engineering contract, acceptance tests, data schemas, policy examples, and implementation instructions. **It does not yet contain a working editor or reviewer.** Do not distribute it to students until the release gates pass.
+> **Project status (27 October 2026): G0 IN PROGRESS — TECHNICAL PREVIEW ONLY. V2 IS A FUTURE ROADMAP ONLY.** WordCraft v0.11.0 is imported in full under `vendor/wordcraft/` (see [`docs/UPSTREAM_LOCK.md`](docs/UPSTREAM_LOCK.md)) and builds to WebAssembly. A rebranded **technical preview** is published to GitHub Pages at `https://rktrobinhood.github.io/InkWitness/` with `/write/` and `/review/` routes. **It does not yet record writing history, export evidence or replay anything.** Every page says so. Do not distribute it to students until the release gates pass.
+
+### Build the site locally
+
+Needs Rust 1.95 with the `wasm32-unknown-unknown` target, and Trunk 0.22.1.
+
+```sh
+scripts/build-pages.sh            # writes dist/pages/{index.html,write/,review/,app/,brand/,licenses/}
+python3 -m http.server -d dist/pages 8000   # then open http://127.0.0.1:8000/write/
+```
+
+For editor development, use upstream's dev server: `cd vendor/wordcraft/apps/wordcraft-web && trunk serve`, then open <http://127.0.0.1:8771/>.
+
+`.github/workflows/pages.yml` builds the same site on every pull request and deploys it to GitHub Pages on every push to `main`.
 
 InkWitness is an open-source, privacy-conscious educational project intended to extend [WordCraft](https://github.com/storytold/wordcraft) (Rust/WebAssembly, MIT OR Apache-2.0). It is being designed for a supervised IB Theory of Knowledge essay writing day, and later for teacher-configurable multi-question assessments. The goal is not to decide whether students cheated, but to preserve a useful, reviewable account of a writing session.
 
