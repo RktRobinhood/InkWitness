@@ -21,6 +21,8 @@ log = { workspace = true }
 serde_json = { workspace = true }
 wordcraft-doc = { workspace = true }
 wordcraft-fonts = { workspace = true }
+# InkWitness: the evidence writer and the /review/ page.
+wordcraft-inkwitness-review = { path = "../../crates/inkwitness-review" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # `wgpu` pulls egui-wgpu's defaults: WebGPU plus the WebGL2 fallback.

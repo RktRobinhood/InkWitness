@@ -90,7 +90,7 @@ pub fn payload(s: &Session, r: &Recorder) -> Vec<u8> {
         "sections": [{"sectionId": "main", "fields": [{"fieldId": "essay", "kind": "richtext"}]}],
         "sessionSpans": [{"spanId": "span-1", "startedAtLocal": "2026-10-28T09:00:00Z", "startedElapsedMs": 0, "attemptId": ATTEMPT, "reason": "new"}],
         "events": events,
-        "checkpoints": [],
+        "checkpoints": r.checkpoints(),
         "diagnostics": [],
         "export": {
             "finalSeq": events.len(),

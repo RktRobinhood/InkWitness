@@ -527,6 +527,8 @@ pub struct Session {
     run_depth: u32,
     /// The gesture the front end raised for the next command ([`Session::begin_gesture`]).
     gesture: Option<crate::observe::Gesture>,
+    /// InkWitness review: the document is only looked at ([`Session::set_read_only`]).
+    read_only: bool,
 }
 
 /// The number of edit locations Go Back cycles through (Word: four).
@@ -769,6 +771,7 @@ impl Session {
             observer: None,
             run_depth: 0,
             gesture: None,
+            read_only: false,
         }
     }
 
@@ -792,6 +795,40 @@ impl Session {
     /// Drop a gesture no command took, so it can't attach to a later one.
     pub fn end_gesture(&mut self) {
         self.gesture = None;
+    }
+
+    /// InkWitness review: make the document view-only. [`Session::run`] then refuses every
+    /// command that edits, saves or replaces the document ([`Session::refuses_read_only`]), and
+    /// puts the document back if any other command changed it anyway. Nothing about this is
+    /// stored in the document (unlike Restrict Editing's read-only protection).
+    pub fn set_read_only(&mut self, on: bool) {
+        self.read_only = on;
+    }
+
+    /// Whether the document is view-only ([`Session::set_read_only`]).
+    pub fn read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Whether a view-only session refuses command `id`: every command marked as mutating, and
+    /// the ones that swap, replace or write the document without being marked so (Undo, Redo,
+    /// Repeat, New, Open, Close, Save).
+    pub fn refuses_read_only(&self, id: &str) -> bool {
+        const NOT_MARKED: &[&str] = &[
+            "edit.undo",
+            "edit.undoTo",
+            "edit.redo",
+            "edit.repeat",
+            "file.new",
+            "file.open",
+            "file.close",
+            "file.save",
+            "file.saveAs",
+            "file.rename",
+            "file.encrypt",
+            "file.recover",
+        ];
+        self.registry.get(id).is_some_and(|spec| spec.mutates) || NOT_MARKED.contains(&id)
     }
 
     /// Remember the caret as the place of an edit, for Go Back. Edits in the same paragraph as
@@ -1454,6 +1491,7 @@ impl Session {
             observer: _,
             run_depth: _,
             gesture: _,
+            read_only: _,
         } = self;
         let head = if history.len() + SNAPSHOT_HEAD > MAX_UNDO { history.iter().take(SNAPSHOT_HEAD).cloned().collect() } else { Vec::new() };
         EditSnapshot {
@@ -1573,12 +1611,27 @@ impl Session {
     /// changed the document.
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
         let outermost = self.run_depth == 0;
+        // InkWitness review: a view-only document refuses edits, and any change a command made
+        // anyway is put back.
+        if self.read_only && self.refuses_read_only(id) {
+            return Err(CmdError::Disabled(format!("{id}: the document is open for review only")));
+        }
+        let viewed = (self.read_only && outermost).then(|| (self.doc.clone(), self.sel.clone(), self.document_id));
         // The gesture raised for this command, taken by its outermost run only.
         let gesture = if outermost && self.gesture.as_ref().is_some_and(|g| g.command == id) { self.gesture.take() } else { None };
         let before = (outermost && self.observer.is_some()).then(|| (self.doc.clone(), self.sel.clone(), self.document_id));
         self.run_depth = self.run_depth.saturating_add(1);
         let result = self.run_command(id, params);
         self.run_depth = self.run_depth.saturating_sub(1);
+        if let Some((doc, sel, document_id)) = viewed
+            && (self.document_id != document_id || !doc.same_content(&self.doc))
+        {
+            self.doc = doc;
+            self.sel = sel;
+            self.document_id = document_id;
+            self.rev = self.rev.wrapping_add(1);
+            return Err(CmdError::Disabled(format!("{id}: the document is open for review only")));
+        }
         if let (Ok(_), Some((doc, sel, document_id))) = (&result, before) {
             let kind = if self.document_id != document_id {
                 crate::observe::CommitKind::Replaced

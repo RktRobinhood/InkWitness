@@ -92,6 +92,11 @@ impl Ids {
         format!("b{}", self.next)
     }
 
+    /// Each story's ids by story name (`body`, `part:<id>`).
+    pub fn keyed(&self) -> BTreeMap<String, Vec<String>> {
+        self.stories.iter().map(|(s, ids)| (story_key(*s), ids.clone())).collect()
+    }
+
     /// Fresh ids for every paragraph of `doc` (the first document, or one that replaced it).
     pub fn assign_all(&mut self, doc: &Document) {
         let mut all = BTreeMap::new();
@@ -136,8 +141,14 @@ pub struct Op {
     pub inserted: String,
     pub before_anchor: Option<Anchor>,
     pub after_anchor: Option<Anchor>,
+    /// The window's paragraphs before the change.
+    pub before_blocks: Vec<Arc<Block>>,
     /// The window's paragraphs after the change, for an exact replay of formatting.
     pub after_blocks: Vec<Arc<Block>>,
+    /// Whether the window's paragraphs are one run of neighbouring blocks in one container, before
+    /// and after. When either is not (a table came or went in the window), replacing the window's
+    /// paragraphs can't rebuild the story, so the event carries the whole story instead.
+    pub siblings: bool,
 }
 
 /// Where the change most likely is, from the selection: the start of the selection before the
@@ -380,8 +391,19 @@ fn window_op(story: StoryRef, before: &[Para<'_>], before_ids: &[String], after:
         offset: start,
         deleted,
         inserted,
+        before_blocks: before.iter().map(|(_, b)| Arc::clone(b)).collect(),
         after_blocks: after.iter().map(|(_, b)| Arc::clone(b)).collect(),
+        siblings: sibling_run(before) && sibling_run(after),
     }
+}
+
+/// Whether `window` is one run of neighbouring blocks in one container (same parent path,
+/// consecutive indexes). An empty window is.
+pub(crate) fn sibling_run(window: &[Para<'_>]) -> bool {
+    window.windows(2).all(|w| match (w[0].0.split_last(), w[1].0.split_last()) {
+        (Some((a, pa)), Some((b, pb))) => pa == pb && a.checked_add(1) == Some(*b),
+        _ => false,
+    })
 }
 
 /// The range `start..end` of a window's flow, anchored on the paragraph it starts in.

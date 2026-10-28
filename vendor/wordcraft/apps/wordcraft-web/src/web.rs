@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use wasm_bindgen::JsCast as _;
 use wordcraft_engine::Session;
+use wordcraft_inkwitness_review::Route;
 use wordcraft_ui_egui::async_saves::{AsyncSaves, SaveOutcome};
 use wordcraft_ui_egui::{Inbox, Services, WordApp};
 
@@ -33,7 +34,13 @@ pub fn start() {
         let app_bridge = bridge.clone();
         let dirty = Rc::new(Cell::new(false));
         let saves = AsyncSaves::default();
+        // InkWitness: `/review/` (or `?mode=review`) reviews a DOCX's history read-only; any other
+        // page is the writer, which records every edit into the DOCX it saves.
+        let pathname = web_sys::window().and_then(|w| w.location().pathname().ok()).unwrap_or_default();
+        let review = Route::from_url(&pathname, &query()) == Route::Review;
+        // The review page has nothing of its own to lose on leaving.
         if bridge.is_none()
+            && !review
             && let Err(e) = guard_unload(dirty.clone(), saves.clone())
         {
             log::error!("no unsaved-changes guard: {e}");
@@ -63,9 +70,9 @@ pub fn start() {
                     // decimal separator (#838).
                     let region = wordcraft_ui_egui::i18n::system_region();
                     // In host mode the parent sends the document to edit; no sample meanwhile.
-                    let sample = app_bridge.is_none() && query().contains("sample");
+                    let sample = app_bridge.is_none() && !review && query().contains("sample");
                     let doc = if sample { wordcraft_engine::sample::sample_document() } else { wordcraft_engine::blank_document(&region) };
-                    let mut session = Session::new(doc);
+                    let mut session = if review { wordcraft_inkwitness_review::review::start_session(doc) } else { Session::new(doc) };
                     session.system_region = region;
                     let messages = Rc::new(RefCell::new(Vec::new()));
                     let mut services = services(inbox.clone(), cc.egui_ctx.clone(), dirty, saves.clone(), messages.clone());
@@ -81,15 +88,26 @@ pub fn start() {
                     crate::prefs::restore(&mut app, stored.as_deref());
                     // A region chosen in File › Options replaces the browser's for the first blank
                     // document too (#838).
-                    if !sample && app.session.prefs.region.is_some() {
+                    if !sample && !review && app.session.prefs.region.is_some() {
                         let doc = app.session.blank_document();
                         app.session.set_document(doc);
                     }
                     let mut prefs = crate::prefs::PrefsSync::new(stored);
                     // No document to show: start on File › Home, as the desktop app does (#766).
-                    if !sample {
+                    // The review page shows its own start text instead.
+                    if !sample && !review {
                         app.start_screen();
                     }
+                    let review = if review {
+                        Some(wordcraft_inkwitness_review::review::Review::default())
+                    } else {
+                        wordcraft_inkwitness_review::writer::attach(
+                            &mut app,
+                            Box::new(wordcraft_inkwitness_review::web::WebEnv::new()),
+                            Box::new(wordcraft_inkwitness_review::web::now_iso),
+                        );
+                        None
+                    };
                     // The host's name for the user signs this visit's work, but isn't stored as the
                     // browser's own preference, which a visit outside the host would restore.
                     if app_bridge.is_some()
@@ -99,7 +117,7 @@ pub fn start() {
                         crate::host::Bridge::set_author(&mut app, &author);
                         prefs.keep_own_author(&app.session.author, &own);
                     }
-                    Ok(Box::new(WebShell { app, inbox, messages, prefs }))
+                    Ok(Box::new(WebShell { app, inbox, messages, prefs, review }))
                 }),
             )
             .await;
@@ -134,6 +152,8 @@ struct WebShell {
     inbox: Inbox,
     messages: Rc<RefCell<Vec<String>>>,
     prefs: crate::prefs::PrefsSync,
+    /// InkWitness: the `/review/` page's replay (`None` on the writer).
+    review: Option<wordcraft_inkwitness_review::review::Review>,
 }
 
 fn local_storage() -> Option<web_sys::Storage> {
@@ -166,7 +186,17 @@ impl eframe::App for WebShell {
         for msg in msgs {
             self.app.status(msg);
         }
+        // The review page takes opened and dropped files itself: they are reviewed, never
+        // opened for editing.
+        if let Some(review) = &mut self.review {
+            review.logic(&mut self.app);
+        }
         self.app.logic(ctx);
+        if let Some(review) = &mut self.review
+            && let Some(line) = review.status_changed()
+        {
+            wordcraft_inkwitness_review::web::publish(review, &line);
+        }
         // Store changed preferences straight away: a reload or closed tab runs no exit code (#2132).
         if let Some(json) = self.prefs.changed(&self.app) {
             match local_storage() {
@@ -185,6 +215,13 @@ impl eframe::App for WebShell {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if let Some(review) = &mut self.review {
+            review.panel(ui, &mut self.app);
+            // A seek this frame changes the status line.
+            if let Some(line) = review.status_changed() {
+                wordcraft_inkwitness_review::web::publish(review, &line);
+            }
+        }
         self.app.ui(ui);
     }
 }

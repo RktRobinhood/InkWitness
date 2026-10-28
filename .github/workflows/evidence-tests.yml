@@ -1,6 +1,7 @@
-# InkWitness edit-evidence tests (G0-3, G0-4, G0-5): the recorder crate and its DOCX
-# evidence envelope, the docx crate's Custom XML part helper, the engine's
-# hostile-params guard, and the UI paste-gesture link. The full upstream gate is
+# InkWitness edit-evidence tests (G0-3 to G0-6): the recorder crate, its DOCX
+# evidence envelope and replay engine, the docx crate's Custom XML part helper, the
+# engine's hostile-params guard and view-only mode, the UI paste-gesture link, and
+# the writer → DOCX → review path. The full upstream gate is
 # `cargo xtask ci` (see docs/BACKLOG.md for its latest local result).
 name: Evidence tests
 
@@ -58,3 +59,9 @@ jobs:
 
       - name: UI paste gesture links to its commit
         run: cargo test -p wordcraft-ui-egui --lib paste_event_links_its_gesture_to_its_commit
+
+      - name: View-only review session refuses every change (wordcraft-engine)
+        run: cargo test -p wordcraft-engine --lib observe::
+
+      - name: Writer → DOCX → review replay and seek (wordcraft-inkwitness-review)
+        run: cargo test -p wordcraft-inkwitness-review

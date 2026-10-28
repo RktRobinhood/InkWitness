@@ -35,6 +35,10 @@ const EDGE_MAX_DT: f32 = 0.1;
 /// are rendered again when they come back.
 const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 
+/// InkWitness review: the reviewed event's highlight (amber, see-through) and its underline.
+const REVIEW_MARK_FILL: egui::Color32 = egui::Color32::from_rgba_premultiplied(81, 53, 0, 90);
+const REVIEW_MARK_LINE: egui::Color32 = egui::Color32::from_rgb(214, 140, 0);
+
 pub struct CanvasState {
     textures: HashMap<usize, (u64, TextureHandle)>,
     /// Visible full-resolution tiles of pages too tall for one GPU texture.
@@ -48,6 +52,8 @@ pub struct CanvasState {
     /// Set while a command runs for a mouse drag on a table: the pointer is already
     /// on the target, so the view stays put instead of following the caret (#1738).
     pub keep_view: bool,
+    /// InkWitness review: the range of the event being reviewed, highlighted on the page.
+    pub review_mark: Option<(wordcraft_engine::doc::Pos, wordcraft_engine::doc::Pos)>,
     /// A heading navigation click aligns its page against the navigation pane, not just visible.
     pub(crate) nav_to_caret: bool,
     /// Touchpad travel not yet converted to an entire reading-column turn.
@@ -248,6 +254,7 @@ impl Default for CanvasState {
             markup_facts: std::cell::Cell::new(None),
             scroll_to_caret: true,
             keep_view: false,
+            review_mark: None,
             nav_to_caret: false,
             read_wheel_accum: 0.0,
             read_viewport: Settle::default(),
@@ -1580,6 +1587,18 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         Rect::from_min_size(pos2(pr.min.x + r.x * geo.scale, pr.min.y + r.y * geo.scale), vec2(r.w * geo.scale, r.h * geo.scale));
                     painter.rect_filled(sr, 0.0, t.accent.gamma_multiply(0.16));
                     painter.hline(sr.x_range(), sr.max.y - 0.5, egui::Stroke::new(1.5, t.accent));
+                }
+            }
+        }
+        // InkWitness review: the event being reviewed (a pasted passage), outlined in amber.
+        if let Some((a, b)) = app.canvas.review_mark.clone() {
+            let (a, b) = (app.session.doc.clamp(&a), app.session.doc.clamp(&b));
+            for (pi, r) in layout.selection_rects(&app.session.doc, &a, &b, app.session.page_hint) {
+                if let Some(pr) = rects.get(pi) {
+                    let sr =
+                        Rect::from_min_size(pos2(pr.min.x + r.x * geo.scale, pr.min.y + r.y * geo.scale), vec2(r.w * geo.scale, r.h * geo.scale));
+                    painter.rect_filled(sr, 0.0, REVIEW_MARK_FILL);
+                    painter.hline(sr.x_range(), sr.max.y - 0.5, egui::Stroke::new(2.0, REVIEW_MARK_LINE));
                 }
             }
         }
