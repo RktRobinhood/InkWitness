@@ -5,8 +5,22 @@ Status convention: `[ ]` not started, `[~]` underway, `[x]` verified. The specif
 ## G0 - Stop/go technical spike (P0)
 - [x] Clone canonical WordCraft and pin verified release/commit; preserve notices. *2026-10-27: v0.11.0 = `e31f2f06a5f8004ceaa88f68c00b47908e321aa4`, full workspace subtree at `vendor/wordcraft/`; LICENSE-MIT/APACHE, NOTICE, ATTRIBUTION kept. See `docs/UPSTREAM_LOCK.md`.*
 - [x] Build upstream WASM editor locally and serve it from localhost. *2026-10-27: Rust 1.95.0 + Trunk 0.22.1; `trunk build --release` succeeded (cold 5m41s, 43 MB `-Oz` wasm). `scripts/build-pages.sh` output loaded in headless Chromium 1248 (SwiftShader WebGL2) under `/InkWitness/write/` and `/InkWitness/review/`: editor start screen rendered in about 2 s, zero off-origin requests. Real GPU browsers and school devices: NOT TESTED.*
-- [ ] Identify exact editable document transaction boundary; add and test event observer.
-- [ ] Correlate actual paste command -> `gestureId` -> committed document operations.
+- [x] Identify exact editable document transaction boundary; add and test event observer. *2026-10-28 (FAL-387): the boundary is the outermost `Session::run`. `crates/engine/src/observe.rs` adds a commit hook there, and the new `crates/inkwitness` `Recorder` turns each committed change into one `evidence-v1` event: block-id anchors in model units, `documentStateDigest` and a provisional `v0` digest chain. Design: `docs/adr/0001-event-anchors.md`. Tests in `crates/inkwitness/src/tests.rs`, all PASS on Rust 1.95 / Linux:*
+  - *typing `Knowledge matters` gives 17 `text_insert` events (W01);*
+  - *delete, undo and redo (W04);*
+  - *a paragraph split or merge is a `structure_change` carrying only the paragraph mark, never a large text event (W05);*
+  - *a no-op gives no event; a nested command (`styles.apply` running `para.style`) gives one event;*
+  - *a change made outside `run` is recorded as `origin: unknown`;*
+  - *New gives `import_document`;*
+  - *the event chain verifies.*
+
+  *Real emitted events pass `jsonschema` 4.26 (draft 2020-12) against the event schema. `hostile_params_never_panic` and a recorder-attached variant PASS. Browser UI does not receive events yet (NOT TESTED in the browser). Cross-language (JS) digest vectors: NOT DONE (FAL-388).*
+- [x] Correlate actual paste command -> `gestureId` -> committed document operations. *2026-10-28 (FAL-387): `WordApp::run` raises a paste gesture (Ctrl+V, ribbon, context menu), and the session attaches it only to the outermost run of that one paste command.*
+  - *Test: a 185-character paste gives exactly one `paste` event, with `gestureId` = `pasteGestureId` = the gesture's id and one op inserting exactly those 185 characters at `b1` offsets 6–191 (W02).*
+  - *The gesture never reaches macro recordings or Repeat; a repeated paste has `gestureId: null`.*
+  - *UI test `paste_event_links_its_gesture_to_its_commit` feeds a real `egui::Event::Paste` through the app: PASS.*
+  - *Clipboard MIME types are recorded when the front end supplies them (engine test). The egui and web paste path exposes text only, so `clipboardTypes` is left out there, not guessed (follow-up proposal in the ADR). `sourceStatus` is always `unknown`.*
+  - *A real browser paste: NOT TESTED.*
 - [ ] Export and reimport Custom XML in a valid DOCX; confirm existing Word revision behavior.
 - [ ] Show actual intermediate rendered state and scroll to exact operation range in WordCraft.
 - [ ] Microsoft Word Windows DOCX edit/save preservation test (if unavailable, tracked as gate pending).

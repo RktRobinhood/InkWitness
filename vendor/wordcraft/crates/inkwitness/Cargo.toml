@@ -1,0 +1,20 @@
+[package]
+name = "wordcraft-inkwitness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "InkWitness: records committed WordCraft edits as evidence events with stable block anchors, and links a paste gesture to the operations it committed"
+
+[lints]
+workspace = true
+
+[dependencies]
+wordcraft-doc = { workspace = true }
+wordcraft-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+# Random ids for events and gestures in `SystemEnv` (the browser host supplies its own `Env`).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom = { workspace = true }

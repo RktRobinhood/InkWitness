@@ -1,0 +1,56 @@
+# InkWitness edit-evidence tests (G0-3, G0-4): the recorder crate, the engine's
+# hostile-params guard, and the UI paste-gesture link. The full upstream gate is
+# `cargo xtask ci` (see docs/BACKLOG.md for its latest local result).
+name: Evidence tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evidence-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  RUST_TOOLCHAIN: "1.95"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: vendor/wordcraft
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            vendor/wordcraft/target
+          key: evidence-${{ runner.os }}-rust${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('vendor/wordcraft/Cargo.lock') }}
+          restore-keys: evidence-${{ runner.os }}-rust${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Recorder tests (wordcraft-inkwitness)
+        run: cargo test -p wordcraft-inkwitness
+
+      - name: Engine hostile params never panic
+        run: cargo test -p wordcraft-engine --lib hostile_params_never_panic
+
+      - name: UI paste gesture links to its commit
+        run: cargo test -p wordcraft-ui-egui --lib paste_event_links_its_gesture_to_its_commit

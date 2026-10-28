@@ -904,7 +904,21 @@ impl WordApp {
     /// Run a command the user asked for (ribbon, shortcut, Backstage, file drop). New, Open,
     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
+    ///
+    /// InkWitness: a paste the user asked for (Ctrl+V, the ribbon, the context menu) is a
+    /// gesture, which the session links to the operations this one paste commits. eframe hands
+    /// over the paste's text only, so its clipboard formats are unknown here.
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        if !wordcraft_engine::observe::is_paste(id) {
+            return self.run_asked(id, params);
+        }
+        self.session.begin_gesture(wordcraft_engine::observe::Gesture::paste(id, None));
+        let r = self.run_asked(id, params);
+        self.session.end_gesture();
+        r
+    }
+
+    fn run_asked(&mut self, id: &str, params: Value) -> Result<Value, String> {
         // Comment text still being typed is written first, so a save or export has it and a
         // close, New or Open counts it as a change (#1348). A draft the document refuses is not
         // part of it: saving and exporting go on without it (the refusal stays on the status
@@ -3895,6 +3909,46 @@ mod tests {
             assert!(a.dialog.is_none(), "Cancel closes the dialog");
             assert_eq!(a.session.selected_text(), "Keep this text", "Cancel preserves selection");
         }
+    }
+
+    /// InkWitness: Ctrl+V raises a paste gesture, which the session links to exactly the commit
+    /// of that one paste; the typing around it carries none.
+    #[test]
+    fn paste_event_links_its_gesture_to_its_commit() {
+        use std::sync::{Arc, Mutex};
+        use wordcraft_engine::observe::{Commit, CommitObserver};
+        #[derive(Clone, Default)]
+        struct Seen(Arc<Mutex<Vec<(String, Option<String>)>>>);
+        impl CommitObserver for Seen {
+            fn gesture_id(&mut self) -> String {
+                "gesture-1".into()
+            }
+            fn on_commit(&mut self, c: &Commit<'_>) {
+                self.0.lock().unwrap().push((c.command.to_string(), c.gesture.and_then(|g| g.id.clone())));
+            }
+        }
+        let ctx = egui::Context::default();
+        let mut a = app();
+        let seen = Seen::default();
+        a.session.set_observer(Some(Box::new(seen.clone())));
+        let frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        frame(&mut a, vec![egui::Event::Text("Intro ".into())]);
+        frame(&mut a, vec![egui::Event::Paste("pasted text".into())]);
+        frame(&mut a, vec![egui::Event::Text("!".into())]);
+        assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Intro pasted text!");
+        let seen = seen.0.lock().unwrap().clone();
+        let linked: Vec<_> = seen.iter().filter(|(_, g)| g.is_some()).collect();
+        assert_eq!(linked, [&("edit.paste".to_string(), Some("gesture-1".to_string()))], "{seen:?}");
+        assert!(seen.iter().any(|(c, g)| c == "text.insert" && g.is_none()), "{seen:?}");
     }
 
     /// Issue #139: Ctrl+wheel over the page didn't zoom.

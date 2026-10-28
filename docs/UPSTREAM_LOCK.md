@@ -24,6 +24,14 @@ Keep this list current. Every change to `vendor/wordcraft/` must be listed here 
 | `crates/ui-egui/src/lib.rs`, `chrome.rs`, `backstage.rs`, `ribbon.rs` | Window and title-bar name `InkWitness`; the ArtCraft Discord button, Backstage link and Help-tab button are hidden unless the existing "Show the community button" option is on (now off by default); title test updated | `docs/BRANDING.md` |
 | `crates/ui-egui/src/dialogs.rs` | About dialog: InkWitness name, plain-text "Based on WordCraft by the ArtCraft team", no ArtCraft links; copyright line kept | `docs/BRANDING.md`, `LICENSE-brand.txt` |
 | `crates/ui-egui/src/i18n/audit.rs` | `InkWitness` allowed as an untranslated product name | Keeps the upstream i18n audit test green |
+| `crates/engine/src/observe.rs` | New module: `CommitObserver`, `Commit`, `CommitKind`, `Gesture`, `is_paste` | G0-3/G0-4 commit hook (FAL-387, `docs/adr/0001-event-anchors.md`) |
+| `crates/engine/src/lib.rs` | `pub mod observe;` | Same |
+| `crates/engine/src/session.rs` | `Session::run` is now a wrapper that reports the outermost run's change to an attached observer; the old body is `run_command`. New fields `observer`, `run_depth`, `gesture` (and in the `edit_snapshot` field list); new `set_observer`, `begin_gesture`, `end_gesture` | Same. With no observer attached the wrapper only counts depth |
+| `crates/ui-egui/src/lib.rs` | `WordApp::run` raises a paste `Gesture` around paste commands (old body is `run_asked`); test `paste_event_links_its_gesture_to_its_commit` | G0-4: the gesture is created at the user's paste |
+| `crates/ui-egui/src/dialogs.rs` | `cargo fmt` line wrap of the About dialog's version label | That line (from the rebrand) failed `cargo fmt --check` |
+| `crates/inkwitness/` | New crate `wordcraft-inkwitness` (layer 5): the evidence `Recorder`, block ids, anchors, digests, tests | InkWitness code kept in its own crate |
+| `xtask/src/layers.rs` | `inkwitness` registered at layer 5 | `cargo xtask layers` requires every crate to be classified |
+| `Cargo.lock` | `wordcraft-inkwitness` entry | New crate |
 
 Not yet rebranded (tracked as a follow-up): the Help-tab keytip and the `ui.discord` command, Options and default-app strings, `web.rs` start-up error text, the sample document link, and generator metadata in `crates/docx` (`Application`), `crates/pdf` and `crates/formats/src/latex.rs`.
 

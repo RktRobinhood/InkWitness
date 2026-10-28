@@ -2721,7 +2721,10 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     // InkWitness fork: product identity per docs/BRANDING.md. Upstream attribution stays in plain text.
                     ui.label(egui::RichText::new(tl!("InkWitness")).font(semibold(22.0)));
                     let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(tl!("development build"));
-                    ui.label(crate::i18n::fmt(tl!("Based on WordCraft {version} ({build})"), &[("version", env!("CARGO_PKG_VERSION")), ("build", build)]));
+                    ui.label(crate::i18n::fmt(
+                        tl!("Based on WordCraft {version} ({build})"),
+                        &[("version", env!("CARGO_PKG_VERSION")), ("build", build)],
+                    ));
                     ui.label(tl!(
                         "Every document has a story. Write, replay, understand.\nBased on WordCraft by the ArtCraft team. InkWitness is independently developed\nand is not affiliated with or endorsed by the ArtCraft Team."
                     ));
