@@ -80,3 +80,53 @@ pub trait CommitObserver: Send {
     /// The document changed.
     fn on_commit(&mut self, commit: &Commit<'_>);
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::{Session, cmd};
+
+    /// InkWitness review: no command changes, replaces or saves a view-only document, and none
+    /// panics trying.
+    #[test]
+    fn a_view_only_session_refuses_every_change() {
+        let params = [json!({}), json!({"text": "x", "size": 30, "style": "Heading 1", "preset": "narrow", "rows": 2, "cols": 2}), json!(null)];
+        for spec in cmd::registry().all() {
+            let mut s = Session::new(crate::sample::sample_document());
+            s.run("caret.docStart", &json!({})).ok();
+            s.run("select.word", &json!({})).ok();
+            s.set_read_only(true);
+            let refused = s.refuses_read_only(spec.id);
+            // Commands that reach outside the session (files, printers) are only run when the
+            // session refuses them before they start.
+            if spec.id.starts_with("file.") && !refused {
+                continue;
+            }
+            let (doc, id) = (s.doc.clone(), s.document_id());
+            for p in &params {
+                let r = s.run(spec.id, p);
+                assert!(!refused || r.is_err(), "{} ran on a view-only document", spec.id);
+                assert!(s.doc.same_content(&doc), "{} changed a view-only document", spec.id);
+                assert_eq!(s.document_id(), id, "{} replaced a view-only document", spec.id);
+            }
+        }
+    }
+
+    #[test]
+    fn view_only_refuses_editing_but_not_looking() {
+        let mut s = Session::new(crate::sample::sample_document());
+        s.set_read_only(true);
+        for id in ["text.insert", "edit.paste", "edit.undo", "edit.redo", "file.new", "file.open", "file.save", "layout.margins"] {
+            assert!(s.refuses_read_only(id), "{id}");
+        }
+        for id in ["caret.docEnd", "select.all", "edit.copy", "view.zoom", "view.readMode"] {
+            assert!(!s.refuses_read_only(id), "{id}");
+        }
+        assert!(s.run("caret.docEnd", &json!({})).is_ok());
+        assert!(s.run("select.all", &json!({})).is_ok());
+        assert!(s.run("text.insert", &json!({"text": "x"})).is_err());
+        s.set_read_only(false);
+        assert!(s.run("text.insert", &json!({"text": "x"})).is_ok());
+    }
+}

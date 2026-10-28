@@ -49,6 +49,8 @@ pub const TABLE: &[(&str, Class)] = &[
     ("mcp", Class::Layer(5)),
     // InkWitness: edit evidence recorded from the engine's commit hook.
     ("inkwitness", Class::Layer(5)),
+    // InkWitness: the writer hook and the /review/ replay page, on the egui app.
+    ("inkwitness-review", Class::Layer(7)),
     ("zotero", Class::Layer(5)),
     ("ui-egui", Class::Layer(6)),
     ("testkit", Class::Testkit),

@@ -12,6 +12,8 @@
 
 pub mod blocks;
 pub mod envelope;
+pub mod evidence;
+pub mod replay;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -123,6 +125,9 @@ struct State {
     last: Document,
     digests: HashMap<usize, [u8; 32]>,
     events: Vec<Value>,
+    /// Model states to replay from (`checkpoints[]`): one when the recorder attached, and one
+    /// whenever a command replaced the document (an import, New, Open).
+    checkpoints: Vec<Value>,
 }
 
 impl Recorder {
@@ -131,7 +136,8 @@ impl Recorder {
         let mut ids = blocks::Ids::default();
         ids.assign_all(doc);
         let prior = sha256_hex(DOMAIN_GENESIS, config.attempt_id.as_bytes());
-        let state = State { env, config, seq: 0, prior, ids, last: doc.clone(), digests: HashMap::new(), events: Vec::new() };
+        let checkpoints = vec![replay::checkpoint_json(0, doc, &ids.keyed())];
+        let state = State { env, config, seq: 0, prior, ids, last: doc.clone(), digests: HashMap::new(), events: Vec::new(), checkpoints };
         Recorder { state: Arc::new(Mutex::new(state)) }
     }
 
@@ -151,9 +157,19 @@ impl Recorder {
         self.lock().events.clone()
     }
 
+    /// Who and where the events belong to.
+    pub fn config(&self) -> Config {
+        self.lock().config.clone()
+    }
+
+    /// The checkpoints so far (the evidence's `checkpoints[]`), oldest first.
+    pub fn checkpoints(&self) -> Vec<Value> {
+        self.lock().checkpoints.clone()
+    }
+
     /// Each story's paragraph ids now, in document order (`body`, `part:<id>`).
     pub fn block_ids(&self) -> BTreeMap<String, Vec<String>> {
-        self.lock().ids.stories.iter().map(|(s, ids)| (story_key(*s), ids.clone())).collect()
+        self.lock().ids.keyed()
     }
 
     /// The provisional digest of a document's state (see [`document_digest`]).
@@ -234,7 +250,7 @@ impl State {
         if !self.last.same_content(c.before) {
             let before = std::mem::take(&mut self.last);
             let ops = blocks::rebind(&mut self.ids, &before, c.before, blocks::Hints::default());
-            self.emit("", CommitKind::Edit, ops, None, c.before);
+            self.emit("", CommitKind::Edit, ops, None, &before, c.before);
             drop(before);
         }
         if c.kind == CommitKind::Replaced {
@@ -242,19 +258,24 @@ impl State {
             let stories: Map<String, Value> = self.ids.stories.iter().map(|(s, ids)| (story_key(*s), json!(ids))).collect();
             let op = json!({"op": "replaceDocument", "command": c.command, "stories": stories});
             self.push_event(c.command, c.kind, &[], vec![op], None, c.after);
+            // The new document's state isn't in any op: replay starts again from here.
+            let cp = replay::checkpoint_json(self.seq, c.after, &self.ids.keyed());
+            self.checkpoints.push(cp);
             return;
         }
         let (start, _) = c.before_sel.ordered();
         let hints = blocks::Hints { before: Some(&start), after: Some(&c.after_sel.focus) };
         let ops = blocks::rebind(&mut self.ids, c.before, c.after, hints);
-        self.emit(c.command, c.kind, ops, c.gesture, c.after);
+        self.emit(c.command, c.kind, ops, c.gesture, c.before, c.after);
     }
 
-    fn emit(&mut self, command: &str, kind: CommitKind, ops: Vec<Op>, gesture: Option<&Gesture>, after: &Document) {
-        // Typing carries its text only; anything else carries the changed paragraphs too.
-        let with_content = classify(command, kind, &ops).1 != "keyboard";
-        let mut json_ops: Vec<Value> = ops.iter().map(|o| op_json(command, o, with_content)).collect();
-        if ops.is_empty() {
+    fn emit(&mut self, command: &str, kind: CommitKind, ops: Vec<Op>, gesture: Option<&Gesture>, before: &Document, after: &Document) {
+        // Typing carries its text only, when the plain-text rule rebuilds its paragraphs exactly;
+        // anything else carries the changed paragraphs too.
+        let keyboard = classify(command, kind, &ops).1 == "keyboard";
+        let mut json_ops: Vec<Value> = ops.iter().map(|o| op_json(command, o, !keyboard || !text_rule_rebuilds(o), after)).collect();
+        json_ops.extend(part_ops(command, before, after));
+        if json_ops.is_empty() {
             // Only something outside the stories changed (styles, comments, settings…).
             json_ops.push(json!({"op": "nonStory", "command": command}));
         }
@@ -319,7 +340,46 @@ impl State {
     }
 }
 
-fn op_json(command: &str, o: &Op, with_content: bool) -> Value {
+/// Whether replay's plain-text rule rebuilds an op's paragraphs exactly from its text change.
+fn text_rule_rebuilds(o: &Op) -> bool {
+    let before: Vec<&wordcraft_doc::Paragraph> = o.before_blocks.iter().filter_map(|b| b.as_para()).collect();
+    let after: Vec<&wordcraft_doc::Paragraph> = o.after_blocks.iter().filter_map(|b| b.as_para()).collect();
+    if !o.siblings || before.len() != o.before_blocks.len() || after.len() != o.after_blocks.len() {
+        return false;
+    }
+    replay::apply_text(&before, o.offset, &o.deleted, &o.inserted).is_some_and(|rebuilt| rebuilt.iter().eq(after.iter().copied()))
+}
+
+/// `setPart` ops for the document parts outside the stories that a replay needs to lay the
+/// document out as it was ([`replay::RECORDED_PARTS`]: page setup, styles, numbering), one per
+/// part that changed.
+fn part_ops(command: &str, before: &Document, after: &Document) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut push = |part: &str, changed: bool, value: serde_json::Result<Value>| {
+        if !changed {
+            return;
+        }
+        let mut m = Map::new();
+        m.insert("op".into(), json!("setPart"));
+        m.insert("command".into(), json!(command));
+        m.insert("part".into(), json!(part));
+        match value {
+            Ok(v) if serde_json::to_string(&v).map_or(usize::MAX, |s| s.len()) <= MAX_CONTENT_BYTES => {
+                m.insert("value".into(), v);
+            }
+            _ => {
+                m.insert("valueOmitted".into(), json!(format!("larger than {MAX_CONTENT_BYTES} bytes")));
+            }
+        }
+        out.push(Value::Object(m));
+    };
+    push("lastSection", before.last_section != after.last_section, serde_json::to_value(&after.last_section));
+    push("styles", before.styles != after.styles, serde_json::to_value(&after.styles));
+    push("numbering", before.numbering != after.numbering, serde_json::to_value(&after.numbering));
+    out
+}
+
+fn op_json(command: &str, o: &Op, with_content: bool, after: &Document) -> Value {
     let win = |w: &[WindowBlock]| -> Value { w.iter().map(|b| json!({"blockId": b.id, "len": b.len})).collect() };
     let mut m = Map::new();
     m.insert("op".into(), json!("replace"));
@@ -337,6 +397,17 @@ fn op_json(command: &str, o: &Op, with_content: bool) -> Value {
             m.insert("content".into(), Value::Array(content));
         } else {
             m.insert("contentOmitted".into(), json!(format!("larger than {MAX_CONTENT_BYTES} bytes")));
+        }
+    }
+    // A table came or went in the window: its paragraphs alone can't rebuild the story.
+    if !o.siblings
+        && let Some((_, bl)) = blocks::stories(after).into_iter().find(|(s, _)| *s == o.story)
+    {
+        let story: Vec<Value> = bl.iter().map(|b| serde_json::to_value(&**b).unwrap_or(Value::Null)).collect();
+        if serde_json::to_string(&story).map_or(usize::MAX, |s| s.len()) <= 4 * MAX_CONTENT_BYTES {
+            m.insert("storyBlocks".into(), Value::Array(story));
+        } else {
+            m.insert("storyBlocksOmitted".into(), json!(format!("larger than {} bytes", 4 * MAX_CONTENT_BYTES)));
         }
     }
     Value::Object(m)
@@ -445,3 +516,5 @@ fn write_canonical(v: &Value, out: &mut String) {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_replay;

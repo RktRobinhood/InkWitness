@@ -41,6 +41,19 @@ Keep this list current. Every change to `vendor/wordcraft/` must be listed here 
 | `Cargo.toml` | Workspace dependency `flate2` (`rust_backend`, already in the lock through `zip`) | Same |
 | `Cargo.lock` | `wordcraft-inkwitness` dependency list | Same |
 | `ATTRIBUTION.md` | Row for `crates/inkwitness/tests/fixtures/g0-evidence.docx` | `cargo xtask assets` requires every committed `.docx` to be attributed |
+| `crates/inkwitness/src/replay.rs`, `src/evidence.rs`, `src/tests_replay.rs` | New: the replay engine (checkpoints, per-event application with digest checks, anchor → `Pos`), the evidence-document builder, 9 replay tests | G0-6 (FAL-389, `docs/adr/0002-replay.md`) |
+| `crates/inkwitness/src/lib.rs`, `src/blocks.rs` | The recorder writes checkpoints (on attach and after each import), `setPart` ops for page setup/styles/numbering, `storyBlocks` when a table comes or goes, and leaves typing's `content` out only when replay's text rule rebuilds it exactly | Same |
+| `crates/inkwitness/src/envelope.rs` | `gunzip_bounded` shared with checkpoint reading | Same |
+| `crates/inkwitness/tests/common/fixture.rs`, `tests/fixtures/g0-evidence.docx` | The fixture's evidence now has its checkpoint; fixture regenerated | Same |
+| `crates/inkwitness/Cargo.toml` | Dev-dependency `wordcraft-layout` (a test lays the replayed page out) | Same |
+| `crates/inkwitness-review/` | New crate `wordcraft-inkwitness-review` (layer 7): the writer hook (records edits, embeds the history on Save), the `/review/` page (load, verify, step/seek, highlight, side note, live status region), `Route::from_url`, the browser `Env` | Same. InkWitness UI code kept in its own crate |
+| `xtask/src/layers.rs` | `inkwitness-review` registered at layer 7 | Same |
+| `crates/engine/src/session.rs` | `Session::set_read_only`, `read_only`, `refuses_read_only`; `run` refuses those commands on a view-only session and puts back any change another command made; field `read_only` (also in the `edit_snapshot` field list) | Same: the review page's explicit read-only mode, stored nowhere in the document |
+| `crates/engine/src/observe.rs` | Tests: no registered command changes, replaces or saves a view-only document | Same |
+| `crates/ui-egui/src/canvas.rs` | `CanvasState::review_mark` and its amber highlight, drawn like Read Aloud's | Same |
+| `crates/ui-egui/src/lib.rs` | `Services::prepare_save` (`PrepareSaveFn`): the document the web Save writes; `WordApp::execute` refuses a view-only session's save/edit commands before the web save path | Same |
+| `apps/wordcraft-web/src/web.rs`, `Cargo.toml` | Route from the URL path (`/review/`) or `?mode=review` (parsed, not searched); Review: view-only start page, no unload guard, files from the picker and drops go to the review, status region; Write: recorder attached, Save embeds the history | Same |
+| `Cargo.lock` | `wordcraft-inkwitness-review` entries | New crate |
 
 Not yet rebranded (tracked as a follow-up): the Help-tab keytip and the `ui.discord` command, Options and default-app strings, `web.rs` start-up error text, the sample document link, and generator metadata in `crates/docx` (`Application`), `crates/pdf` and `crates/formats/src/latex.rs`.
 

@@ -273,11 +273,16 @@ fn utf16_to_utf8(bytes: &[u8]) -> Result<Option<String>, EnvelopeError> {
 
 /// Decompress one complete gzip stream of at most [`MAX_PAYLOAD_BYTES`].
 fn gunzip(compressed: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
+    gunzip_bounded(compressed, MAX_PAYLOAD_BYTES)
+}
+
+/// Decompress one complete gzip stream of at most `max` bytes.
+pub(crate) fn gunzip_bounded(compressed: &[u8], max: usize) -> Result<Vec<u8>, EnvelopeError> {
     let mut gz = GzDecoder::new(compressed);
     let mut out = Vec::new();
-    let limit = u64::try_from(MAX_PAYLOAD_BYTES).unwrap_or(u64::MAX).saturating_add(1);
+    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
     (&mut gz).take(limit).read_to_end(&mut out).map_err(|_| EnvelopeError::BadGzip)?;
-    if out.len() > MAX_PAYLOAD_BYTES {
+    if out.len() > max {
         return Err(EnvelopeError::PayloadTooLarge);
     }
     // One stream, nothing after it (a second member or trailing bytes would go unread).

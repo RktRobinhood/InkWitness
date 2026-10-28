@@ -96,6 +96,9 @@ use wordcraft_engine::Session;
 pub use control::ControlRequest;
 pub use file_dialogs::{FileDialogAnswer, FileDialogRequest, open_filters};
 
+/// InkWitness: see [`Services::prepare_save`].
+pub type PrepareSaveFn = Box<dyn Fn(&str, &wordcraft_engine::doc::Document) -> Result<Option<wordcraft_engine::doc::Document>, String>>;
+
 /// Platform services injected by the host (file dialogs, file I/O).
 #[derive(Default)]
 pub struct Services {
@@ -143,6 +146,10 @@ pub struct Services {
     /// Web: hand PDF bytes to the browser's print dialog (no download or intermediate file).
     /// Desktop uses `print_native` instead. An error means nothing was opened.
     pub print: Option<Box<dyn Fn(&[u8]) -> Result<(), String>>>,
+    /// InkWitness, web: the document a Save or Save As writes under a name, when it isn't the open
+    /// document as it is (the evidence part added). `Ok(None)` writes the open document; an error
+    /// stops the save.
+    pub prepare_save: Option<PrepareSaveFn>,
     /// Desktop: the picture on the system clipboard, if any — egui's paste only carries text
     /// (#45). Read when Paste finds no text; see [`paste_picture`].
     pub clipboard_picture: Option<Box<dyn Fn() -> Option<paste_picture::ClipboardPicture>>>,
@@ -1000,6 +1007,11 @@ impl WordApp {
     /// Run a command for a script or an agent (control channel, MCP bridge): never asks first.
     /// UI-level commands (`ui.*`) are handled here, the rest by the engine.
     pub fn execute(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        // InkWitness review: the web's Save and Export run here, not through the session, so a
+        // view-only document refuses them here too.
+        if self.session.read_only() && self.session.refuses_read_only(id) {
+            return Err(format!("{id}: the document is open for review only"));
+        }
         // A pending Change Picture only survives until the next action (#147).
         if !matches!(id, "ui.changePicture" | "picture.change" | "insert.picture") {
             self.change_picture_target = None;
@@ -1054,7 +1066,11 @@ impl WordApp {
             let password =
                 if matches!(id, "file.save" | "file.saveAs") { self.session.password.as_ref().map(wordcraft_engine::Password::as_str) } else { None };
             let opts = wordcraft_engine::cmd::file::export_options(&self.session, &params);
-            let bytes = wordcraft_engine::io::save_bytes_with(&name, &self.session.doc, password, &opts)?;
+            let prepared = match (&self.services.prepare_save, matches!(id, "file.save" | "file.saveAs")) {
+                (Some(prepare), true) => prepare(&name, &self.session.doc)?,
+                _ => None,
+            };
+            let bytes = wordcraft_engine::io::save_bytes_with(&name, prepared.as_ref().unwrap_or(&self.session.doc), password, &opts)?;
             // A ticket left over from an earlier call isn't this save's.
             let saves = self.services.async_saves.clone();
             if let Some(saves) = &saves {

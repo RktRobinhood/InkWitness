@@ -6708,7 +6708,23 @@ dependencies = [
  "wordcraft-doc",
  "wordcraft-docx",
  "wordcraft-engine",
+ "wordcraft-layout",
  "zip",
+]
+
+[[package]]
+name = "wordcraft-inkwitness-review"
+version = "0.11.0"
+dependencies = [
+ "egui",
+ "js-sys",
+ "serde_json",
+ "web-sys",
+ "wordcraft-doc",
+ "wordcraft-docx",
+ "wordcraft-engine",
+ "wordcraft-inkwitness",
+ "wordcraft-ui-egui",
 ]
 
 [[package]]
@@ -6841,6 +6857,7 @@ dependencies = [
  "wordcraft-doc",
  "wordcraft-engine",
  "wordcraft-fonts",
+ "wordcraft-inkwitness-review",
  "wordcraft-ui-egui",
 ]
 
