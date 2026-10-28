@@ -21,7 +21,21 @@ Status convention: `[ ]` not started, `[~]` underway, `[x]` verified. The specif
   - *UI test `paste_event_links_its_gesture_to_its_commit` feeds a real `egui::Event::Paste` through the app: PASS.*
   - *Clipboard MIME types are recorded when the front end supplies them (engine test). The egui and web paste path exposes text only, so `clipboardTypes` is left out there, not guessed (follow-up proposal in the ADR). `sourceStatus` is always `unknown`.*
   - *A real browser paste: NOT TESTED.*
-- [ ] Export and reimport Custom XML in a valid DOCX; confirm existing Word revision behavior.
+- [~] Export and reimport Custom XML in a valid DOCX; confirm existing Word revision behavior. *2026-10-28 (FAL-388): WordCraft and LibreOffice round trips PASS. Microsoft Word and Word revision behaviour are NOT TESTED, so this stays open.*
+  - *Helper: `wordcraft_docx::{set,find}_custom_xml_part` (`crates/docx/src/custom_xml.rs`). It finds a part by its root element's **namespace**, never by file name. It writes an itemProps with a datastore GUID and `schemaRef`, the `customXml` relationship from `word/document.xml`, and content types. It goes through WordCraft's existing passthrough, so nothing is double-written or orphaned. Setting a namespace again replaces the part in place and keeps its item id.*
+  - *Envelope: `crates/inkwitness/src/envelope.rs` writes the `<wa:history xmlns:wa="urn:workalone:evidence:v1">` envelope from `docs/DOCX_FORMAT.md`, with a deterministic gzip+base64 JSON payload. Limits: 32 MiB of envelope XML, 64 MiB of JSON once decompressed. Reading rejects a DOCTYPE, any entity reference, child elements, trailing gzip data and an `attemptId` that differs from the payload's. It follows no relationship (an external `customXml` target is never fetched).*
+  - *Tests, all PASS on Rust 1.95 / Linux:*
+    - *DOCX write → read gives identical payload bytes;*
+    - *two WordCraft open → edit (`text.insert`, `text.newParagraph`) → save cycles keep the part, unchanged and not duplicated;*
+    - *two namespaces coexist with a foreign store, and the bibliography keeps `item1.xml` (ours moves to `item2.xml`, or is renamed by the writer if sources are added later);*
+    - *duplicate namespace parts are reported as ambiguous;*
+    - *every written package has no orphan part and no dangling relationship;*
+    - *28 hostile inputs fail cleanly, without a panic: oversize, gzip bomb, bad base64, bad or truncated gzip, wrong namespace, DOCTYPE with an external entity, entity reference, unsupported version, encoding or media type, attempt mismatch, bad UTF-16 and others;*
+    - *corrupting any single byte of an envelope never panics.*
+  - *Fixture: `vendor/wordcraft/crates/inkwitness/tests/fixtures/g0-evidence.docx` is written by the real WordCraft writer from a real `Session` and `Recorder` (27 typed characters, one paste, a backspace and an undo; 30 events; `Example Student`). Its payload passes `jsonschema` 4.26 against `schemas/evidence-v1.schema.json`. Regenerate it with `cargo run -p wordcraft-inkwitness --example evidence_fixture` from `vendor/wordcraft/`. A test fails if the committed file differs from the writer's output.*
+  - *LibreOffice 26.2.6.3, headless `soffice --convert-to docx`: PASS. The part survives; LibreOffice rewrites only the XML declaration and itemProps formatting. `evidence_check` reads identical payload bytes and the same item id. A LibreOffice interactive edit and save: NOT TESTED.*
+  - *Microsoft Word (Windows, Mac, web): NOT TESTED. Manual procedure: `docs/WORD_ROUNDTRIP_TEST.md`.*
+  - *`cargo xtask ci`, run step by step on Rust 1.95 (2026-10-28): fmt, test (4,203 passed, 0 failed), assets, layers and wasm PASS. clippy FAILS, as it did before this change, on upstream lines Rust 1.95's clippy flags (`doc/math_linear.rs`, `proof`, `xtask`). The crates changed here have no clippy findings.*
 - [ ] Show actual intermediate rendered state and scroll to exact operation range in WordCraft.
 - [ ] Microsoft Word Windows DOCX edit/save preservation test (if unavailable, tracked as gate pending).
 - [ ] Record stop/go decision and upstream gaps with screenshots/fixtures.

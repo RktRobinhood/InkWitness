@@ -1,4 +1,5 @@
-# InkWitness edit-evidence tests (G0-3, G0-4): the recorder crate, the engine's
+# InkWitness edit-evidence tests (G0-3, G0-4, G0-5): the recorder crate and its DOCX
+# evidence envelope, the docx crate's Custom XML part helper, the engine's
 # hostile-params guard, and the UI paste-gesture link. The full upstream gate is
 # `cargo xtask ci` (see docs/BACKLOG.md for its latest local result).
 name: Evidence tests
@@ -46,8 +47,11 @@ jobs:
           key: evidence-${{ runner.os }}-rust${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('vendor/wordcraft/Cargo.lock') }}
           restore-keys: evidence-${{ runner.os }}-rust${{ env.RUST_TOOLCHAIN }}-
 
-      - name: Recorder tests (wordcraft-inkwitness)
+      - name: Recorder and envelope tests (wordcraft-inkwitness)
         run: cargo test -p wordcraft-inkwitness
+
+      - name: Custom XML part helper (wordcraft-docx)
+        run: cargo test -p wordcraft-docx --test it custom_xml
 
       - name: Engine hostile params never panic
         run: cargo test -p wordcraft-engine --lib hostile_params_never_panic

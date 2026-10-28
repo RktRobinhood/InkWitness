@@ -32,6 +32,15 @@ Keep this list current. Every change to `vendor/wordcraft/` must be listed here 
 | `crates/inkwitness/` | New crate `wordcraft-inkwitness` (layer 5): the evidence `Recorder`, block ids, anchors, digests, tests | InkWitness code kept in its own crate |
 | `xtask/src/layers.rs` | `inkwitness` registered at layer 5 | `cargo xtask layers` requires every crate to be classified |
 | `Cargo.lock` | `wordcraft-inkwitness` entry | New crate |
+| `crates/docx/src/custom_xml.rs` | New module: `set_custom_xml_part`, `set_custom_xml_part_with_id`, `find_custom_xml_part`, `custom_xml_parts`, `remove_custom_xml_part`, `CustomXmlPart`, `CustomXmlError`. It adds, replaces, finds and removes one Custom XML part by the **namespace** of its root element, with an itemProps part (datastore GUID, `schemaRef`), through the existing `customXml.roots` / `embedded.parts` passthrough bookkeeping | G0-5 (FAL-388). Other crates must not hand-write those private manifest keys |
+| `crates/docx/src/lib.rs` | `mod custom_xml;` and its `pub use` line | Same |
+| `crates/docx/tests/it/custom_xml.rs` | 7 new tests (byte-for-byte round trip, replace in place, edited saves, two namespaces plus a foreign store, bibliography, find by namespace and duplicates, hostile input) and a package-consistency check (no orphan parts or dangling relationships) | Same |
+| `crates/inkwitness/src/envelope.rs`, `src/lib.rs` | New `envelope` module: the `<wa:history>` envelope (gzip+base64 JSON, bounded), `encode`/`decode`/`embed`/`extract` | Same |
+| `crates/inkwitness/tests/`, `examples/` | Envelope tests, the synthetic fixture `tests/fixtures/g0-evidence.docx` and its builder (`examples/evidence_fixture.rs`), and `examples/evidence_check.rs` | Same |
+| `crates/inkwitness/Cargo.toml` | Dependencies `wordcraft-docx`, `quick-xml`, `base64`, `flate2`; dev-dependency `zip` | Same |
+| `Cargo.toml` | Workspace dependency `flate2` (`rust_backend`, already in the lock through `zip`) | Same |
+| `Cargo.lock` | `wordcraft-inkwitness` dependency list | Same |
+| `ATTRIBUTION.md` | Row for `crates/inkwitness/tests/fixtures/g0-evidence.docx` | `cargo xtask assets` requires every committed `.docx` to be attributed |
 
 Not yet rebranded (tracked as a follow-up): the Help-tab keytip and the `ui.discord` command, Options and default-app strings, `web.rs` start-up error text, the sample document link, and generator metadata in `crates/docx` (`Application`), `crates/pdf` and `crates/formats/src/latex.rs`.
 

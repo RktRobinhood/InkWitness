@@ -11,6 +11,8 @@ mod bibliography;
 mod chart_spec;
 mod crypt;
 mod custom;
+// InkWitness: custom XML data parts found and set by namespace.
+mod custom_xml;
 mod flat;
 mod fonts;
 mod package;
@@ -27,6 +29,10 @@ pub use chart_spec::{chart_items, chart_xml};
 pub use crypt::{
     DEFAULT_SPIN_COUNT, MAX_PASSWORD_CHARS, PasswordCheck, check_password, check_protection_password, decrypt, encrypt, encrypt_with_spin_count,
     is_encrypted, protection_hash,
+};
+pub use custom_xml::{
+    CUSTOM_XML_CONTENT_TYPE, CUSTOM_XML_PROPS_CONTENT_TYPE, CustomXmlError, CustomXmlPart, MAX_CUSTOM_XML_PART, custom_xml_parts,
+    find_custom_xml_part, remove_custom_xml_part, set_custom_xml_part, set_custom_xml_part_with_id,
 };
 pub use flat::{XmlKind, sniff_xml, write as write_flat};
 pub use fonts::{EmbeddedFont, embedded_fonts};
