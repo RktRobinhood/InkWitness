@@ -10,8 +10,15 @@ import pathlib
 import sys
 import struct
 import xml.etree.ElementTree as ET
+import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+# Synthetic DOCX test fixtures written by the WordCraft writer (no real student work). Each must
+# name the synthetic author in its document text; any other .docx in the tree still fails.
+SYNTHETIC_DOCX = {
+    'vendor/wordcraft/crates/inkwitness/tests/fixtures/g0-evidence.docx',
+}
+SYNTHETIC_AUTHOR = 'Example Student'
 REQUIRED = [
     'README.md', 'AGENTS.md', 'CLAUDE.md', 'LICENSE',
     'docs/SPEC.md', 'docs/AGENT_PROMPT.md', 'docs/UPSTREAM_PLAN.md',
@@ -71,6 +78,12 @@ def main():
         if not p.is_file():
             continue
         if p.suffix.lower() in ('.docx', '.docm', '.walproject'):
+            if p.relative_to(ROOT).as_posix() in SYNTHETIC_DOCX:
+                with zipfile.ZipFile(p) as z:
+                    text = z.read('word/document.xml').decode('utf-8')
+                if SYNTHETIC_AUTHOR not in text:
+                    raise AssertionError(f'Synthetic fixture does not name {SYNTHETIC_AUTHOR}: {p}')
+                continue
             raise AssertionError(f'No real student document in starter: {p}')
     for path in (ROOT / 'assets' / 'brand').glob('*.svg'):
         document = ET.parse(path)
