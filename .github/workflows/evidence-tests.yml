@@ -61,7 +61,7 @@ jobs:
         run: cargo test -p wordcraft-ui-egui --lib paste_event_links_its_gesture_to_its_commit
 
       - name: View-only review session refuses every change (wordcraft-engine)
-        run: cargo test -p wordcraft-engine --lib observe::
+        run: "cargo test -p wordcraft-engine --lib observe::"
 
       - name: Writer → DOCX → review replay and seek (wordcraft-inkwitness-review)
         run: cargo test -p wordcraft-inkwitness-review
