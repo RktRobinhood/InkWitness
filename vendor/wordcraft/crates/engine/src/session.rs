@@ -521,6 +521,12 @@ pub struct Session {
     edit_marks: Vec<Pos>,
     /// How many Go Back presses since the last edit (which place comes next).
     go_back_step: usize,
+    /// InkWitness: hears about every committed change ([`crate::observe`]).
+    observer: Option<Box<dyn crate::observe::CommitObserver>>,
+    /// How many [`Session::run`] calls are on the stack: only the outermost one reports.
+    run_depth: u32,
+    /// The gesture the front end raised for the next command ([`Session::begin_gesture`]).
+    gesture: Option<crate::observe::Gesture>,
 }
 
 /// The number of edit locations Go Back cycles through (Word: four).
@@ -760,7 +766,32 @@ impl Session {
             widened: None,
             edit_marks: Vec::new(),
             go_back_step: 0,
+            observer: None,
+            run_depth: 0,
+            gesture: None,
         }
+    }
+
+    /// Attach an observer that hears about every committed change (InkWitness), replacing any
+    /// attached before. Returns the one it replaced.
+    pub fn set_observer(&mut self, observer: Option<Box<dyn crate::observe::CommitObserver>>) -> Option<Box<dyn crate::observe::CommitObserver>> {
+        std::mem::replace(&mut self.observer, observer)
+    }
+
+    /// The front end raises a gesture (a paste) before running the command it starts. The
+    /// outermost run of exactly `gesture.command` takes it; [`Session::end_gesture`] drops it if
+    /// no such run came (the command opened a dialog instead). Returns the gesture's id, from the
+    /// observer; `None` without one.
+    pub fn begin_gesture(&mut self, mut gesture: crate::observe::Gesture) -> Option<String> {
+        gesture.id = self.observer.as_mut().map(|o| o.gesture_id());
+        let id = gesture.id.clone();
+        self.gesture = Some(gesture);
+        id
+    }
+
+    /// Drop a gesture no command took, so it can't attach to a later one.
+    pub fn end_gesture(&mut self) {
+        self.gesture = None;
     }
 
     /// Remember the caret as the place of an edit, for Go Back. Edits in the same paragraph as
@@ -1419,6 +1450,10 @@ impl Session {
             // Go Back's places, like the caret history: not part of the document.
             edit_marks: _,
             go_back_step: _,
+            // InkWitness's observer hears about changes; it is not part of the document.
+            observer: _,
+            run_depth: _,
+            gesture: _,
         } = self;
         let head = if history.len() + SNAPSHOT_HEAD > MAX_UNDO { history.iter().take(SNAPSHOT_HEAD).cloned().collect() } else { Vec::new() };
         EditSnapshot {
@@ -1533,7 +1568,48 @@ impl Session {
     /// Run a command by id with JSON params (the single entry point for the UI, CLI, MCP and
     /// control channel). Mutating commands are undoable; a failed command leaves the document as
     /// it was; a panic inside a command becomes an error.
+    ///
+    /// An attached observer ([`Session::set_observer`]) hears about the outermost run when it
+    /// changed the document.
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
+        let outermost = self.run_depth == 0;
+        // The gesture raised for this command, taken by its outermost run only.
+        let gesture = if outermost && self.gesture.as_ref().is_some_and(|g| g.command == id) { self.gesture.take() } else { None };
+        let before = (outermost && self.observer.is_some()).then(|| (self.doc.clone(), self.sel.clone(), self.document_id));
+        self.run_depth = self.run_depth.saturating_add(1);
+        let result = self.run_command(id, params);
+        self.run_depth = self.run_depth.saturating_sub(1);
+        if let (Ok(_), Some((doc, sel, document_id))) = (&result, before) {
+            let kind = if self.document_id != document_id {
+                crate::observe::CommitKind::Replaced
+            } else {
+                match id {
+                    "edit.undo" | "edit.undoTo" => crate::observe::CommitKind::Undo,
+                    "edit.redo" => crate::observe::CommitKind::Redo,
+                    _ => crate::observe::CommitKind::Edit,
+                }
+            };
+            if kind == crate::observe::CommitKind::Replaced || !doc.same_content(&self.doc) {
+                let commit = crate::observe::Commit {
+                    command: id,
+                    params,
+                    kind,
+                    before: &doc,
+                    before_sel: &sel,
+                    after: &self.doc,
+                    after_sel: &self.sel,
+                    gesture: gesture.as_ref(),
+                };
+                if let Some(o) = self.observer.as_mut() {
+                    o.on_commit(&commit);
+                }
+            }
+        }
+        result
+    }
+
+    /// [`Session::run`] without the observer.
+    fn run_command(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
         let join = std::mem::take(&mut self.join_next);
         let reg = self.registry.clone();
         let Some(spec) = reg.get(id) else { return Err(CmdError::Unknown(id.to_string())) };

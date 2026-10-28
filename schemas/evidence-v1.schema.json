@@ -522,6 +522,11 @@
             "null"
           ],
           "description": "If present, identifies the actual paste command and its committed operations."
+        },
+        "documentStateDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Digest of the document model state after this event's operations (G0: provisional v0 digest of story content; see docs/adr/0001-event-anchors.md)."
         }
       }
     },
