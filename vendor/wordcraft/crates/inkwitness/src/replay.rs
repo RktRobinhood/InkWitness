@@ -216,6 +216,24 @@ impl State {
         }
         out
     }
+
+    /// Story `s`'s paragraphs in document order: each one's block id, position path and text.
+    /// What a teacher comment's anchor is found in (FAL-519).
+    pub fn paragraph_texts(&self, s: StoryRef) -> Vec<(String, Vec<u32>, String)> {
+        let (Some(bl), Some(ids)) = (story_blocks(&self.doc, s), self.ids.get(&s)) else { return Vec::new() };
+        blocks::paragraphs(bl)
+            .into_iter()
+            .zip(ids)
+            .map(|((path, b), id)| (id.clone(), path, b.as_para().map_or(String::new(), |p| p.text.clone())))
+            .collect()
+    }
+
+    /// The block id of the paragraph `p` is in.
+    pub fn block_at(&self, p: &Pos) -> Option<String> {
+        let bl = story_blocks(&self.doc, p.story)?;
+        let k = blocks::paragraphs(bl).iter().position(|(path, _)| *path == p.path.0)?;
+        self.ids.get(&p.story)?.get(k).cloned()
+    }
 }
 
 fn story_blocks(doc: &Document, s: StoryRef) -> Option<&Blocks> {

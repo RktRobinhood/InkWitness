@@ -3,7 +3,10 @@
 //! Seeking to an event highlights its range on the page and scrolls it into view; the
 //! "Observations & notes" rail ([`crate::rail`]) shows its card. The page is a viewer: its
 //! toolbar ([`crate::toolbar`]) replaces WordCraft's ribbon and holds no editing control. The
-//! full video-style transport is G2.
+//! player dock ([`crate::player`]) plays the history at a pace a reviewer can follow, with a pin
+//! for every flag ([`crate::flags`]). Teacher comments ([`crate::comments`]) live in a layer of
+//! their own: they are drawn on the page as comments, but never enter the student's document or
+//! its evidence.
 //!
 //! Nothing is uploaded: the file arrives through the app's inbox (the browser's file picker or a
 //! drop) and stays in memory. The student's file is never written: the session is view-only
@@ -11,11 +14,16 @@
 //! changes it.
 
 use serde_json::Value;
-use wordcraft_doc::{Document, StoryRef};
+use wordcraft_doc::{Document, Pos, StoryRef};
 use wordcraft_engine::{Selection, Session};
 use wordcraft_inkwitness::envelope;
 use wordcraft_inkwitness::replay::{Replay, ReplayError, Resolved, State};
 use wordcraft_ui_egui::WordApp;
+
+use crate::comments::{self, Draft, TeacherComment};
+use crate::flags::{self, Flag};
+use crate::player::{self, DockAction, Player, Timeline};
+use crate::rail::RailAction;
 
 /// Largest file the review page reads.
 pub const MAX_FILE_BYTES: usize = 64 << 20;
@@ -65,6 +73,8 @@ pub struct Loaded {
     pub replayable: u64,
     /// The shown event's range in the shown state, if it has one.
     pub mark: Option<Resolved>,
+    /// The last state the history replays to: teacher comments are anchored in it.
+    pub last: State,
 }
 
 /// The review page's state.
@@ -75,6 +85,36 @@ pub struct Review {
     pub error: Option<String>,
     /// The status line last published ([`Review::status_changed`]).
     published: String,
+    /// The loaded history's flags ([`flags::compute`]).
+    pub flags: Vec<Flag>,
+    /// The loaded history's time scale.
+    pub timeline: Timeline,
+    pub player: Player,
+    /// The teacher's comments, in the order they were written. In memory only.
+    pub comments: Vec<TeacherComment>,
+    /// The comment being written or edited.
+    pub draft: Option<Draft>,
+    next_id: u32,
+    /// A text box in the rail had the keyboard last frame: the dock's shortcuts wait.
+    pub typing: bool,
+    /// The draft's text box asked for the keyboard this frame: the page must not take it back.
+    pub took_focus: bool,
+    /// The document last put on the page (the shown state with the teacher's comments).
+    shown: Option<Document>,
+    /// The comment ids the teacher's comments have on the page ([`crate::export::decorate`]).
+    added: crate::export::Added,
+    /// Which list the rail shows under the moment shown.
+    pub tab: RailTab,
+    /// A short message for the reviewer (a download started, or couldn't).
+    pub notice: Option<String>,
+}
+
+/// The rail's lists.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RailTab {
+    #[default]
+    Flags,
+    Comments,
 }
 
 /// A view-only session showing the start text on `doc`'s page.
@@ -105,6 +145,13 @@ impl Review {
             Ok(l) => {
                 self.error = None;
                 let last = l.replayable;
+                self.flags = flags::compute(&l);
+                self.player = Player::default();
+                self.timeline = Timeline::new(l.replay.events(), l.replayable, self.player.skip_idle);
+                self.comments.clear();
+                self.draft = None;
+                self.notice = None;
+                self.tab = RailTab::Flags;
                 self.loaded = Some(l);
                 self.seek(app, last);
             }
@@ -134,7 +181,16 @@ impl Review {
             }
         }
         l.mark = l.replay.event(l.state.seq).and_then(|e| event_range(&l.state, e));
-        show(app, l);
+        self.put(app);
+    }
+
+    /// Put the shown state, with the teacher's comments, on the page.
+    fn put(&mut self, app: &mut WordApp) {
+        if let Some(l) = &self.loaded {
+            let (doc, added) = show(app, l, &self.comments);
+            self.shown = Some(doc);
+            self.added = added;
+        }
     }
 
     /// The first paste event, if there is one.
@@ -146,10 +202,8 @@ impl Review {
     /// if anything changed it (the session refuses edits; a change made around it is undone).
     pub fn logic(&mut self, app: &mut WordApp) {
         self.take_files(app);
-        if let Some(l) = &self.loaded
-            && !app.session.doc.same_content(&l.state.doc)
-        {
-            show(app, l);
+        if self.loaded.is_some() && self.shown.as_ref().is_none_or(|d| !app.session.doc.same_content(d)) {
+            self.put(app);
         }
     }
 
@@ -212,8 +266,8 @@ impl Review {
         })
     }
 
-    /// The page's own chrome, drawn before the app's page: the viewer toolbar across the top and
-    /// the "Observations & notes" rail at the right.
+    /// The page's own chrome, drawn before the app's page: the viewer toolbar across the top, the
+    /// player dock across the bottom and the "Observations & notes" rail at the right.
     pub fn chrome(&mut self, ui: &mut egui::Ui, app: &mut WordApp) {
         if !app.fonts_ready() {
             return;
@@ -221,18 +275,216 @@ impl Review {
         crate::toolbar::show(ui, app, self.loaded.is_some());
         let t = wordcraft_ui_egui::theme::Tokens::get(ui.ctx());
         let a = wordcraft_ui_egui::theme::critic::Accents::get(ui.ctx());
-        let mut go = None;
+        self.play(ui, app);
+        let mut dock = None;
+        if let Some(l) = &self.loaded
+            && l.consistency != Consistency::Missing
+            && l.replayable > 0
+        {
+            egui::Panel::bottom("inkwitness_player")
+                .exact_size(player::HEIGHT)
+                .frame(
+                    egui::Frame::NONE
+                        .fill(a.rail)
+                        .inner_margin(egui::Margin { left: 16, right: 16, top: 6, bottom: 8 })
+                        .stroke(egui::Stroke::new(1.0, t.border)),
+                )
+                .show(ui, |ui| dock = player::show(ui, &mut self.player, l, &self.flags, &self.timeline));
+            if dock.is_none() && !self.typing {
+                dock = player::shortcuts(ui, self.player.playing, l.state.seq, l.replayable, &flags::moments(&self.flags));
+            }
+        }
+        let mut rail = None;
         egui::Panel::right("inkwitness_review")
             .default_size(crate::rail::WIDTH)
-            .size_range(280.0..=520.0)
+            .size_range(300.0..=560.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(a.rail).inner_margin(egui::Margin::symmetric(14, 10)).stroke(egui::Stroke::new(1.0, t.border)))
             .show(ui, |ui| {
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::rail::show(ui, self, app, &mut go));
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| rail = crate::rail::show(ui, self, app));
             });
-        if let Some(seq) = go {
-            self.seek(app, seq);
+        if self.took_focus {
+            // The page reclaims the keyboard after a click on the chrome (the button that opened
+            // the draft); the draft's text box keeps it.
+            app.canvas.want_focus = false;
+            self.took_focus = false;
         }
+        if let Some(d) = dock {
+            self.dock(app, d);
+        }
+        if let Some(r) = rail {
+            self.rail(app, r);
+        }
+    }
+
+    /// Run playback: show the next due event, and keep frames coming while playing.
+    fn play(&mut self, ui: &egui::Ui, app: &mut WordApp) {
+        let Some(l) = &self.loaded else { return };
+        if self.timeline.skip_idle != self.player.skip_idle {
+            self.timeline = Timeline::new(l.replay.events(), l.replayable, self.player.skip_idle);
+            self.player.clock = self.timeline.time_of(l.state.seq);
+        }
+        let now = ui.input(|i| i.time);
+        let flagged = flags::moments(&self.flags);
+        if let Some(s) = self.player.tick(now, &self.timeline, l.state.seq, l.replayable, &flagged) {
+            self.seek(app, s);
+        }
+        if self.player.playing {
+            ui.ctx().request_repaint();
+        }
+    }
+
+    /// Go to event `seq` by hand: playback pauses there.
+    pub fn go(&mut self, app: &mut WordApp, seq: u64) {
+        self.player.moved(&self.timeline, seq);
+        self.seek(app, seq);
+    }
+
+    fn dock(&mut self, app: &mut WordApp, d: DockAction) {
+        match d {
+            DockAction::Seek(s) => self.go(app, s),
+            DockAction::Play => {
+                let Some(l) = &self.loaded else { return };
+                if let Some(s) = self.player.play(&self.timeline, l.state.seq, l.replayable) {
+                    self.seek(app, s);
+                }
+            }
+            DockAction::Pause => self.player.pause(),
+            DockAction::Comment => self.comment_here(app),
+        }
+    }
+
+    fn rail(&mut self, app: &mut WordApp, r: RailAction) {
+        match r {
+            RailAction::GoTo(s) => self.go(app, s),
+            RailAction::Promote(s) => self.promote(app, s),
+            RailAction::Save => self.save_draft(),
+            RailAction::Discard => self.draft = None,
+            RailAction::Edit(id) => {
+                if let Some(c) = self.comments.iter().find(|c| c.id == id) {
+                    self.draft = Some(Draft::of(c));
+                }
+            }
+            RailAction::Delete(id) => {
+                self.comments.retain(|c| c.id != id);
+                if self.draft.as_ref().is_some_and(|d| d.editing == Some(id)) {
+                    self.draft = None;
+                }
+                self.put(app);
+            }
+            RailAction::Show(id) => {
+                let Some(c) = self.comments.iter().find(|c| c.id == id) else { return };
+                let to = c.seq.unwrap_or(u64::MAX);
+                let last = self.loaded.as_ref().map_or(0, |l| l.replayable);
+                self.go(app, to.min(last));
+            }
+            RailAction::Export => self.export(app),
+            RailAction::Tab(t) => self.tab = t,
+            RailAction::Sample => {
+                let (name, bytes) = crate::sample::docx();
+                self.open(app, &name, &bytes);
+            }
+            RailAction::Open => {
+                if let Some(open) = &app.services.open_async {
+                    open("document");
+                }
+            }
+        }
+    }
+
+    /// Open a comment draft on the text selected on the page, or else on the shown event's range
+    /// (a point at the caret when it has none), at the moment shown.
+    pub fn comment_here(&mut self, app: &mut WordApp) {
+        let Some(l) = &self.loaded else { return };
+        self.player.pause();
+        let on_page = |p: &Pos| self.shown.as_ref().map_or_else(|| p.clone(), |d| crate::export::from_shown(d, &self.added, p));
+        let (start, end) = match (&l.mark, app.session.sel.is_collapsed()) {
+            (Some(m), true) => (m.start.clone(), m.end.clone()),
+            _ => {
+                let (a, b) = app.session.sel.ordered();
+                (on_page(&a), on_page(&b))
+            }
+        };
+        let placed = comments::anchor_forward(&l.state, &l.last, &start, &end);
+        self.draft = Some(Draft {
+            editing: None,
+            text: String::new(),
+            moved: placed.as_ref().is_some_and(|p| p.1),
+            anchor: placed.map(|p| p.0),
+            seq: (l.state.seq > 0).then_some(l.state.seq),
+            from_flag: None,
+            focus: true,
+        });
+    }
+
+    /// Promote event `seq` (a flag, or any event) to a comment draft pre-filled from the evidence,
+    /// anchored on the event's text in the final document. The page goes to that moment.
+    pub fn promote(&mut self, app: &mut WordApp, seq: u64) {
+        self.go(app, seq);
+        let Some(l) = &self.loaded else { return };
+        let flag = self.flags.iter().find(|f| f.seq == seq);
+        let kind = flag.map(|f| f.kind);
+        let text = comments::promote_text(l, seq, kind, flag.and_then(|f| f.matched.as_deref()));
+        let placed = match &l.mark {
+            Some(m) if l.state.seq == seq => comments::anchor_forward(&l.state, &l.last, &m.start, &m.end),
+            _ => None,
+        };
+        self.draft = Some(Draft {
+            editing: None,
+            text,
+            moved: placed.as_ref().is_some_and(|p| p.1),
+            anchor: placed.map(|p| p.0),
+            seq: Some(seq),
+            from_flag: kind.map(|k| (seq, k)),
+            focus: true,
+        });
+    }
+
+    /// Save the draft as a teacher comment (an edit replaces the comment's text).
+    pub fn save_draft(&mut self) {
+        let Some(d) = self.draft.take() else { return };
+        if d.text.trim().is_empty() {
+            self.draft = Some(d);
+            return;
+        }
+        match d.editing.and_then(|id| self.comments.iter_mut().find(|c| c.id == id)) {
+            Some(c) => c.text = d.text,
+            None => {
+                self.next_id += 1;
+                self.comments.push(TeacherComment {
+                    id: self.next_id,
+                    text: d.text,
+                    anchor: d.anchor,
+                    moved: d.moved,
+                    seq: d.seq,
+                    from_flag: d.from_flag,
+                    written: now_iso(),
+                });
+                self.tab = RailTab::Comments;
+            }
+        }
+        // Drawn on the page from the next frame ([`Review::logic`] puts the page back).
+        self.shown = None;
+    }
+
+    /// Whether event `seq` has been promoted to a comment.
+    pub fn promoted(&self, seq: u64) -> bool {
+        self.comments.iter().any(|c| c.from_flag.is_some_and(|(s, _)| s == seq))
+    }
+
+    /// Download a review copy with the teacher's comments ([`crate::export`]).
+    pub fn export(&mut self, app: &mut WordApp) {
+        let Some(l) = &self.loaded else { return };
+        self.notice = Some(match crate::export::review_copy(l, &self.comments) {
+            Ok((name, bytes)) => match &app.services.download {
+                Some(download) => match download(&name, &bytes) {
+                    Ok(()) => format!("Downloading {name}. The student's file is unchanged."),
+                    Err(e) => format!("The review copy couldn't be downloaded: {e}"),
+                },
+                None => "This page can't download files.".into(),
+            },
+            Err(e) => format!("The review copy couldn't be made: {e}"),
+        });
     }
 }
 
@@ -272,11 +524,13 @@ pub fn load(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
         }
     };
     let replayable = state.seq;
-    Ok(Loaded { name: name.to_string(), student, assessment, replay, state, consistency, replayable, mark: None })
+    let last = state.clone();
+    Ok(Loaded { name: name.to_string(), student, assessment, replay, state, consistency, replayable, mark: None, last })
 }
 
 /// A DOCX without an InkWitness history, shown as saved: "History missing", no events.
 fn unrecorded(name: &str, doc: wordcraft_doc::Document) -> Result<Loaded, String> {
+    let doc_last = doc.clone();
     let replay = Replay::from_evidence(&serde_json::json!({"events": []})).map_err(|e| format!("{name}: {e}"))?;
     Ok(Loaded {
         name: name.to_string(),
@@ -287,6 +541,7 @@ fn unrecorded(name: &str, doc: wordcraft_doc::Document) -> Result<Loaded, String
         consistency: Consistency::Missing,
         replayable: 0,
         mark: None,
+        last: State::unrecorded(doc_last),
     })
 }
 
@@ -297,14 +552,33 @@ pub fn event_range(st: &State, e: &Value) -> Option<Resolved> {
     st.resolve(e.get("afterAnchor")?, Some(&window))
 }
 
-/// Put the loaded state on the page: the document, the highlight, the caret at its start and
-/// the view following it.
-fn show(app: &mut WordApp, l: &Loaded) {
-    app.session.doc = l.state.doc.clone();
+/// Put the loaded state on the page: the document with the teacher's comments that can be found
+/// in it, the highlight, the caret at its start and the view following it. Returns the document
+/// put on the page and the ids its teacher comments have.
+fn show(app: &mut WordApp, l: &Loaded, notes: &[TeacherComment]) -> (Document, crate::export::Added) {
+    let mut doc = l.state.doc.clone();
+    let added = crate::export::decorate(&mut doc, &l.state, notes);
+    let mark = l.mark.as_ref().map(|m| (crate::export::to_shown(&doc, &added, &m.start), crate::export::to_shown(&doc, &added, &m.end)));
+    app.session.doc = doc.clone();
     app.session.touch();
     app.session.dirty = false;
-    let at = l.mark.as_ref().map_or_else(|| app.session.doc.start_of(StoryRef::Body), |m| m.start.clone());
+    let at = mark.as_ref().map_or_else(|| app.session.doc.start_of(StoryRef::Body), |m| m.0.clone());
     app.session.sel = Selection::caret(app.session.doc.clamp(&at));
-    app.canvas.review_mark = l.mark.as_ref().filter(|m| m.start != m.end).map(|m| (m.start.clone(), m.end.clone()));
+    app.canvas.review_mark = mark.filter(|m| m.0 != m.1);
     app.canvas.scroll_to_caret = true;
+    (doc, added)
+}
+
+/// The time now, RFC 3339 (a teacher comment's date).
+fn now_iso() -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::web::now_iso()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        chrono::DateTime::from_timestamp(i64::try_from(secs).unwrap_or(0), 0)
+            .map_or_else(String::new, |d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    }
 }
