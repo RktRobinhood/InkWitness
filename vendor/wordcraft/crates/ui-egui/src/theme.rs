@@ -434,8 +434,218 @@ impl Tokens {
             on_close: Color32::WHITE,
         }
     }
+    /// InkWitness Review's Critic palette, light ([`Palette::Critic`], `docs/BRANDING.md`): Ink
+    /// Navy text on Paper Blue surfaces, a deeper Witness Blue for actions (white text on
+    /// `#3685F5` is only 3.6:1), and a calm blue-grey around the white page.
+    pub fn critic_light() -> Self {
+        Tokens {
+            title_bar: critic::PAPER_BLUE,
+            ribbon: Color32::from_rgb(0xF7, 0xFA, 0xFF),
+            tab_strip: critic::PAPER_BLUE,
+            canvas: Color32::from_rgb(0xD5, 0xE0, 0xEE),
+            panel: critic::PAPER_BLUE,
+            border: Color32::from_rgb(0xC7, 0xD5, 0xE8),
+            border_strong: Color32::from_rgb(0x94, 0xA8, 0xC4),
+            text: critic::INK_NAVY,
+            // Slate itself is 4.4:1 on Paper Blue: muted text takes a deeper slate.
+            text_dim: Color32::from_rgb(0x4F, 0x60, 0x79),
+            text_disabled: Color32::from_rgb(0x9A, 0xA8, 0xBB),
+            icon: Color32::from_rgb(0x24, 0x34, 0x4F),
+            hover: Color32::from_rgb(0xDC, 0xE8, 0xF8),
+            pressed: Color32::from_rgb(0xC9, 0xDA, 0xF2),
+            checked: Color32::from_rgb(0xD3, 0xE3, 0xFB),
+            accent: Color32::from_rgb(0x25, 0x63, 0xD8),
+            nav: critic::INK_NAVY,
+            accent_text: Color32::from_rgb(0x1C, 0x55, 0xC0),
+            on_accent: Color32::WHITE,
+            input: Color32::WHITE,
+            input_border: Color32::from_rgb(0x6F, 0x82, 0xA0),
+            group_label: Color32::from_rgb(0x4F, 0x60, 0x79),
+            status_bar: critic::PAPER_BLUE,
+            selection: Color32::from_rgba_unmultiplied(0x36, 0x85, 0xF5, 0x48),
+            markup_area: Color32::from_rgb(0xEE, 0xF4, 0xFC),
+            markup_edge: Color32::from_rgb(0xC7, 0xD5, 0xE8),
+            blue: Color32::from_rgb(0x25, 0x63, 0xD8),
+            ..Tokens::light()
+        }
+    }
+
+    /// The Critic palette, dark: Paper Blue text on Ink Navy surfaces.
+    pub fn critic_dark() -> Self {
+        Tokens {
+            title_bar: Color32::from_rgb(0x0E, 0x1A, 0x2E),
+            ribbon: critic::INK_NAVY,
+            tab_strip: Color32::from_rgb(0x0E, 0x1A, 0x2E),
+            canvas: Color32::from_rgb(0x0A, 0x13, 0x22),
+            panel: Color32::from_rgb(0x17, 0x28, 0x43),
+            border: Color32::from_rgb(0x2B, 0x3E, 0x5C),
+            border_strong: Color32::from_rgb(0x48, 0x60, 0x7F),
+            text: critic::PAPER_BLUE,
+            text_dim: Color32::from_rgb(0xAF, 0xC0, 0xD6),
+            text_disabled: Color32::from_rgb(0x5E, 0x71, 0x90),
+            icon: Color32::from_rgb(0xD6, 0xE4, 0xF7),
+            hover: Color32::from_rgb(0x22, 0x38, 0x5A),
+            pressed: Color32::from_rgb(0x2C, 0x45, 0x70),
+            checked: Color32::from_rgb(0x1F, 0x3A, 0x63),
+            accent: Color32::from_rgb(0x5B, 0x9B, 0xF7),
+            nav: Color32::from_rgb(0x1B, 0x31, 0x57),
+            accent_text: Color32::from_rgb(0x8F, 0xBC, 0xFA),
+            on_accent: Color32::from_rgb(0x0B, 0x14, 0x24),
+            input: Color32::from_rgb(0x0F, 0x1B, 0x30),
+            input_border: Color32::from_rgb(0x6D, 0x83, 0xA6),
+            group_label: Color32::from_rgb(0xAF, 0xC0, 0xD6),
+            status_bar: Color32::from_rgb(0x0E, 0x1A, 0x2E),
+            selection: Color32::from_rgba_unmultiplied(0x5B, 0x9B, 0xF7, 0x55),
+            balloon: Color32::from_rgb(0x17, 0x28, 0x43),
+            markup_area: Color32::from_rgb(0x0F, 0x1B, 0x30),
+            markup_edge: Color32::from_rgb(0x2B, 0x3E, 0x5C),
+            menu: Color32::from_rgb(0x17, 0x28, 0x43),
+            blue: Color32::from_rgb(0x5B, 0x9B, 0xF7),
+            ..Tokens::dark()
+        }
+    }
+
+    /// The tokens of `palette`, light or dark.
+    pub fn of(palette: Palette, dark: bool) -> Tokens {
+        match (palette, dark) {
+            (Palette::WordCraft, false) => Tokens::light(),
+            (Palette::WordCraft, true) => Tokens::dark(),
+            (Palette::Critic, false) => Tokens::critic_light(),
+            (Palette::Critic, true) => Tokens::critic_dark(),
+        }
+    }
+
     pub fn get(ctx: &egui::Context) -> Tokens {
-        if ctx.global_style().visuals.dark_mode { Tokens::dark() } else { Tokens::light() }
+        Tokens::of(palette(ctx), ctx.global_style().visuals.dark_mode)
+    }
+}
+
+/// Which set of colours the interface is drawn in. Light or dark still comes from the
+/// [`Appearance`] setting; the palette picks the colours of each. WordCraft's own is the default;
+/// Critic is InkWitness Review's (`/review/`, FAL-448), from `docs/BRANDING.md`. A front end sets it
+/// per page ([`WordApp::palette`](crate::WordApp::palette)); it is not a saved preference, so a
+/// review page never changes the writer's look.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Palette {
+    #[default]
+    WordCraft,
+    Critic,
+}
+
+/// The palette [`apply_palette`] installed (WordCraft before any).
+pub fn palette(ctx: &egui::Context) -> Palette {
+    ctx.data(|d| d.get_temp::<Palette>(palette_id())).unwrap_or_default()
+}
+
+fn palette_id() -> egui::Id {
+    egui::Id::new("wordcraft_interface_palette")
+}
+
+/// The Critic palette's brand colours (`docs/BRANDING.md`) and what each one means on the review
+/// page. Colour is never the only sign: every chip and badge also has an icon and words.
+pub mod critic {
+    use egui::Color32;
+
+    /// Chrome and text.
+    pub const INK_NAVY: Color32 = Color32::from_rgb(0x13, 0x21, 0x3A);
+    /// Light surfaces.
+    pub const PAPER_BLUE: Color32 = Color32::from_rgb(0xEA, 0xF3, 0xFF);
+    /// Observations: what InkWitness noticed in the history (never a misconduct verdict).
+    pub const REVIEW_GOLD: Color32 = Color32::from_rgb(0xED, 0xBA, 0x69);
+    /// Teacher actions and comments.
+    pub const WITNESS_BLUE: Color32 = Color32::from_rgb(0x36, 0x85, 0xF5);
+    /// Secondary marks (icons, rules). As text it is 4.9:1 on white but 4.4:1 on Paper Blue, so
+    /// muted text uses [`Tokens::text_dim`](super::Tokens::text_dim) instead.
+    pub const SLATE: Color32 = Color32::from_rgb(0x60, 0x72, 0x8B);
+
+    /// A tinted chip or badge: its fill, its text and icon, and its edge.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Tint {
+        pub fill: Color32,
+        pub text: Color32,
+        pub edge: Color32,
+    }
+
+    /// The Critic colours beyond [`Tokens`](super::Tokens), light or dark.
+    #[derive(Clone, Copy, Debug)]
+    pub struct Accents {
+        /// The page header: Ink Navy in both variants, Paper Blue text on it.
+        pub header: Color32,
+        pub on_header: Color32,
+        pub on_header_dim: Color32,
+        /// A card in the rail, and the rail behind it.
+        pub card: Color32,
+        pub rail: Color32,
+        /// Observations (Review Gold).
+        pub observation: Tint,
+        /// Teacher actions and comments (Witness Blue).
+        pub action: Tint,
+        /// Word comments already in the file (Slate).
+        pub word_comment: Tint,
+        /// History badges: consistent, changed outside InkWitness, corrupt, missing.
+        pub consistent: Tint,
+        pub external: Tint,
+        pub corrupt: Tint,
+        pub missing: Tint,
+        /// The keyboard focus ring, on the rail and the page's surfaces.
+        pub focus: Color32,
+        /// The keyboard focus ring on the header (the light variant's ring is too dark for navy).
+        pub header_focus: Color32,
+    }
+
+    impl Accents {
+        pub fn light() -> Accents {
+            let tint = |fill: [u8; 3], text: [u8; 3], edge: Color32| Tint {
+                fill: Color32::from_rgb(fill[0], fill[1], fill[2]),
+                text: Color32::from_rgb(text[0], text[1], text[2]),
+                edge,
+            };
+            Accents {
+                header: INK_NAVY,
+                on_header: PAPER_BLUE,
+                on_header_dim: Color32::from_rgb(0xB7, 0xC6, 0xDA),
+                card: Color32::WHITE,
+                rail: Color32::from_rgb(0xF7, 0xFA, 0xFF),
+                observation: tint([0xFB, 0xEB, 0xD0], [0x6E, 0x4A, 0x0E], REVIEW_GOLD),
+                action: tint([0xDC, 0xE9, 0xFE], [0x1A, 0x4F, 0xA8], WITNESS_BLUE),
+                word_comment: tint([0xE3, 0xE9, 0xF1], [0x3F, 0x4F, 0x66], SLATE),
+                consistent: tint([0xDD, 0xF2, 0xE6], [0x1E, 0x6B, 0x45], Color32::from_rgb(0x4F, 0xA8, 0x7A)),
+                external: tint([0xFB, 0xEB, 0xD0], [0x6E, 0x4A, 0x0E], REVIEW_GOLD),
+                corrupt: tint([0xFB, 0xE3, 0xE3], [0xA3, 0x26, 0x2A], Color32::from_rgb(0xD9, 0x6A, 0x6A)),
+                missing: tint([0xE3, 0xE9, 0xF1], [0x3F, 0x4F, 0x66], SLATE),
+                focus: Color32::from_rgb(0x25, 0x63, 0xD8),
+                header_focus: Color32::from_rgb(0x5B, 0x9B, 0xF7),
+            }
+        }
+
+        pub fn dark() -> Accents {
+            let tint = |fill: [u8; 3], text: [u8; 3], edge: Color32| Tint {
+                fill: Color32::from_rgb(fill[0], fill[1], fill[2]),
+                text: Color32::from_rgb(text[0], text[1], text[2]),
+                edge,
+            };
+            Accents {
+                header: Color32::from_rgb(0x0E, 0x1A, 0x2E),
+                on_header: PAPER_BLUE,
+                on_header_dim: Color32::from_rgb(0xAF, 0xC0, 0xD6),
+                card: Color32::from_rgb(0x17, 0x28, 0x43),
+                rail: INK_NAVY,
+                observation: tint([0x3D, 0x30, 0x18], [0xF3, 0xCD, 0x8C], REVIEW_GOLD),
+                action: tint([0x1C, 0x3A, 0x66], [0xB4, 0xD2, 0xFF], WITNESS_BLUE),
+                word_comment: tint([0x25, 0x34, 0x4D], [0xC9, 0xD6, 0xE8], SLATE),
+                consistent: tint([0x17, 0x3D, 0x2C], [0x9F, 0xE0, 0xBC], Color32::from_rgb(0x4F, 0xA8, 0x7A)),
+                external: tint([0x3D, 0x30, 0x18], [0xF3, 0xCD, 0x8C], REVIEW_GOLD),
+                corrupt: tint([0x4A, 0x1C, 0x20], [0xFF, 0xB4, 0xB4], Color32::from_rgb(0xD9, 0x6A, 0x6A)),
+                missing: tint([0x25, 0x34, 0x4D], [0xC9, 0xD6, 0xE8], SLATE),
+                focus: Color32::from_rgb(0x5B, 0x9B, 0xF7),
+                header_focus: Color32::from_rgb(0x5B, 0x9B, 0xF7),
+            }
+        }
+
+        /// The accents for the interface `ctx` is drawn in now.
+        pub fn get(ctx: &egui::Context) -> Accents {
+            if ctx.global_style().visuals.dark_mode { Accents::dark() } else { Accents::light() }
+        }
     }
 }
 
@@ -747,8 +957,14 @@ fn tracked_job(text: &str, font: &FontId, tracking: f32, color: Color32) -> egui
 /// Setting a concrete theme for `System` would pin the native window too, and macOS then stops
 /// reporting appearance changes (#311).
 pub fn apply(ctx: &egui::Context, appearance: Appearance) {
-    ctx.set_visuals_of(egui::Theme::Light, visuals(&Tokens::light()));
-    ctx.set_visuals_of(egui::Theme::Dark, visuals(&Tokens::dark()));
+    apply_palette(ctx, appearance, Palette::WordCraft);
+}
+
+/// [`apply`] with `palette`'s colours, which [`Tokens::get`] returns from then on.
+pub fn apply_palette(ctx: &egui::Context, appearance: Appearance, palette: Palette) {
+    ctx.data_mut(|d| d.insert_temp(palette_id(), palette));
+    ctx.set_visuals_of(egui::Theme::Light, visuals(&Tokens::of(palette, false)));
+    ctx.set_visuals_of(egui::Theme::Dark, visuals(&Tokens::of(palette, true)));
     ctx.all_styles_mut(|s| {
         s.spacing.item_spacing = egui::vec2(6.0, 4.0);
         s.spacing.button_padding = egui::vec2(8.0, 3.0);
@@ -834,10 +1050,54 @@ mod tests {
         (x.max(y) + 0.05) / (x.min(y) + 0.05)
     }
 
+    /// Every palette, light and dark: the contrast tests hold for each (Critic: FAL-448).
+    fn palettes() -> [super::Tokens; 4] {
+        [super::Tokens::light(), super::Tokens::dark(), super::Tokens::critic_light(), super::Tokens::critic_dark()]
+    }
+
+    /// FAL-448: the Critic palette's text, muted text, links, chips, badges and focus ring reach
+    /// WCAG AA (4.5:1 for text, 3:1 for the focus ring and the accent against what it sits on).
+    #[test]
+    fn critic_palette_meets_wcag_aa() {
+        use super::critic::Accents;
+        for (t, a) in [(super::Tokens::critic_light(), Accents::light()), (super::Tokens::critic_dark(), Accents::dark())] {
+            let surfaces = [("ribbon", t.ribbon), ("panel", t.panel), ("menu", t.menu), ("input", t.input), ("card", a.card), ("rail", a.rail)];
+            for (name, bg) in surfaces {
+                for (what, fg, need) in
+                    [("text", t.text, 4.5), ("muted text", t.text_dim, 4.5), ("link", t.accent_text, 4.5), ("focus ring", a.focus, 3.0)]
+                {
+                    let r = contrast(fg, bg);
+                    assert!(r >= need, "dark={}: {what} on {name} is {r:.2}:1", t.dark);
+                }
+            }
+            for (what, fg, need) in
+                [("header text", a.on_header, 4.5), ("header muted text", a.on_header_dim, 4.5), ("focus ring", a.header_focus, 3.0)]
+            {
+                let r = contrast(fg, a.header);
+                assert!(r >= need, "dark={}: {what} on the header is {r:.2}:1", t.dark);
+            }
+            let tints = [
+                ("observation", a.observation),
+                ("action", a.action),
+                ("word comment", a.word_comment),
+                ("consistent", a.consistent),
+                ("external", a.external),
+                ("corrupt", a.corrupt),
+                ("missing", a.missing),
+            ];
+            for (name, tint) in tints {
+                let r = contrast(tint.text, tint.fill);
+                assert!(r >= 4.5, "dark={}: {name} chip text is {r:.2}:1", t.dark);
+            }
+            let r = contrast(super::critic::INK_NAVY, super::critic::REVIEW_GOLD);
+            assert!(r >= 4.5, "Ink Navy on Review Gold is {r:.2}:1");
+        }
+    }
+
     /// #1885: the ✕ on a window's close box reads on its hover and pressed reds in both themes.
     #[test]
     fn close_box_glyph_reads_on_its_reds() {
-        for t in [super::Tokens::light(), super::Tokens::dark()] {
+        for t in palettes() {
             for (name, bg) in [("close_hover", t.close_hover), ("close_pressed", t.close_pressed)] {
                 let r = contrast(t.on_close, bg);
                 assert!(r >= 4.5, "dark={}: on_close on {name} is {r:.2}:1", t.dark);
@@ -849,7 +1109,7 @@ mod tests {
     /// on the accent and on its hover shade, in both themes.
     #[test]
     fn on_accent_reads_on_the_accent() {
-        for t in [super::Tokens::light(), super::Tokens::dark()] {
+        for t in palettes() {
             for (name, bg) in [("accent", t.accent), ("hover", t.accent_text)] {
                 let r = contrast(t.on_accent, bg);
                 assert!(r >= 4.5, "dark={}: on_accent on {name} is {r:.2}:1", t.dark);
@@ -860,7 +1120,7 @@ mod tests {
     /// White text and icons on the File page's side bar reach 4.5:1 in both themes.
     #[test]
     fn the_file_sidebar_reads_in_both_themes() {
-        for t in [super::Tokens::light(), super::Tokens::dark()] {
+        for t in palettes() {
             let r = contrast(egui::Color32::WHITE, t.nav);
             assert!(r >= 4.5, "dark={}: white on the sidebar is {r:.2}:1", t.dark);
         }
@@ -869,7 +1129,7 @@ mod tests {
     /// #657: text field and combo outlines reach 3:1 against the field and everything it sits on.
     #[test]
     fn input_borders_reach_three_to_one() {
-        for t in [super::Tokens::light(), super::Tokens::dark()] {
+        for t in palettes() {
             for (name, bg) in [("input", t.input), ("ribbon", t.ribbon), ("panel", t.panel), ("menu", t.menu), ("title bar", t.title_bar)] {
                 let r = contrast(t.input_border, bg);
                 assert!(r >= 3.0, "dark={}: input_border on {name} is {r:.2}:1", t.dark);
@@ -882,7 +1142,7 @@ mod tests {
     #[test]
     fn ruler_text_area_is_lighter_than_its_margins() {
         let lum = |c: egui::Color32| contrast(c, egui::Color32::BLACK);
-        for t in [super::Tokens::light(), super::Tokens::dark()] {
+        for t in palettes() {
             assert!(lum(t.ruler) > lum(t.ruler_margin), "dark={}: ruler text area is darker than its margins", t.dark);
             let r = contrast(t.ruler_tick, t.ruler);
             assert!(r >= 4.5, "dark={}: ruler numbers on the text area are {r:.2}:1", t.dark);
@@ -894,7 +1154,7 @@ mod tests {
     /// on the card, and the author stripes and borders 3:1 on the card and the markup area.
     #[test]
     fn comment_balloons_are_readable() {
-        for t in [super::Tokens::light(), super::Tokens::dark()] {
+        for t in palettes() {
             for (name, card) in [("card", t.balloon), ("selected card", t.checked)] {
                 for (what, fg) in [("text", t.text), ("dim text", t.text_dim), ("resolved label", t.resolved_text)] {
                     let r = contrast(fg, card);

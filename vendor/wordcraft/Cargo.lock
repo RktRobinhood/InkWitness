@@ -6716,7 +6716,9 @@ dependencies = [
 name = "wordcraft-inkwitness-review"
 version = "0.11.0"
 dependencies = [
+ "chrono",
  "egui",
+ "egui_kittest",
  "js-sys",
  "serde_json",
  "web-sys",

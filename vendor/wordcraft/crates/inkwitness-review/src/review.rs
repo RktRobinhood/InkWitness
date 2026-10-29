@@ -1,7 +1,9 @@
-//! The `/review/` route (G0 spike): open a DOCX with an InkWitness history from a local file,
-//! rebuild any recorded state in WordCraft's page renderer, read-only, and step or seek through
-//! the events. Seeking to an event highlights its range on the page and scrolls it into view;
-//! a side note shows the event. The full video-style transport is G2.
+//! The `/review/` route: open a DOCX with an InkWitness history from a local file, rebuild any
+//! recorded state in WordCraft's page renderer, read-only, and step or seek through the events.
+//! Seeking to an event highlights its range on the page and scrolls it into view; the
+//! "Observations & notes" rail ([`crate::rail`]) shows its card. The page is a viewer: its
+//! toolbar ([`crate::toolbar`]) replaces WordCraft's ribbon and holds no editing control. The
+//! full video-style transport is G2.
 //!
 //! Nothing is uploaded: the file arrives through the app's inbox (the browser's file picker or a
 //! drop) and stays in memory. The student's file is never written: the session is view-only
@@ -19,7 +21,7 @@ use wordcraft_ui_egui::WordApp;
 pub const MAX_FILE_BYTES: usize = 64 << 20;
 
 /// The text the review page starts with.
-pub const START_TEXT: &str = "InkWitness Review (G0 technical preview). Open a DOCX saved by InkWitness Write: use Open DOCX in the panel on the right, or drop the file on this page. The file stays on this computer.";
+pub const START_TEXT: &str = "InkWitness Review (technical preview). Open a DOCX saved by InkWitness Write: use Open DOCX at the top right, or drop the file on this page. The file stays on this computer.";
 
 /// What the history in a file says about itself (`AGENTS.md`: local consistency, external
 /// changes and corruption are told apart; none of this is a signature).
@@ -53,6 +55,9 @@ impl Consistency {
 /// A file opened for review.
 pub struct Loaded {
     pub name: String,
+    /// The student's name and the assessment, as the evidence records them (`None`: not entered).
+    pub student: Option<String>,
+    pub assessment: Option<String>,
     pub replay: Replay,
     pub state: State,
     pub consistency: Consistency,
@@ -207,68 +212,24 @@ impl Review {
         })
     }
 
-    /// The review panel, at the right of the page.
-    pub fn panel(&mut self, ui: &mut egui::Ui, app: &mut WordApp) {
-        egui::Panel::right("inkwitness_review").default_size(330.0).resizable(true).show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| self.panel_contents(ui, app));
-        });
-    }
-
-    fn panel_contents(&mut self, ui: &mut egui::Ui, app: &mut WordApp) {
-        ui.heading("InkWitness Review");
-        ui.label("G0 technical preview. Read-only: nothing here changes the student's file.");
-        ui.horizontal(|ui| {
-            if ui.button("Open DOCX…").clicked()
-                && let Some(open) = &app.services.open_async
-            {
-                open("document");
-            }
-            ui.label("or drop it on the page");
-        });
-        if let Some(e) = &self.error {
-            ui.colored_label(egui::Color32::from_rgb(190, 40, 40), e);
+    /// The page's own chrome, drawn before the app's page: the viewer toolbar across the top and
+    /// the "Observations & notes" rail at the right.
+    pub fn chrome(&mut self, ui: &mut egui::Ui, app: &mut WordApp) {
+        if !app.fonts_ready() {
+            return;
         }
-        let mut go: Option<u64> = None;
-        let paste = self.first_paste();
-        if let Some(l) = &self.loaded {
-            ui.separator();
-            ui.strong(&l.name);
-            ui.label(l.consistency.label());
-            ui.label(format!("{} recorded events, {} pastes", l.replay.last_seq(), l.replay.pastes().len()));
-            ui.separator();
-            let seq = l.state.seq;
-            ui.horizontal(|ui| {
-                if ui.button("⏮").on_hover_text("First event").clicked() {
-                    go = Some(0);
-                }
-                if ui.button("◀ Previous").clicked() {
-                    go = Some(seq.saturating_sub(1));
-                }
-                if ui.button("Next ▶").clicked() {
-                    go = Some(seq + 1);
-                }
-                if ui.button("⏭").on_hover_text("Last event").clicked() {
-                    go = Some(l.replayable);
-                }
+        crate::toolbar::show(ui, app, self.loaded.is_some());
+        let t = wordcraft_ui_egui::theme::Tokens::get(ui.ctx());
+        let a = wordcraft_ui_egui::theme::critic::Accents::get(ui.ctx());
+        let mut go = None;
+        egui::Panel::right("inkwitness_review")
+            .default_size(crate::rail::WIDTH)
+            .size_range(280.0..=520.0)
+            .resizable(true)
+            .frame(egui::Frame::NONE.fill(a.rail).inner_margin(egui::Margin::symmetric(14, 10)).stroke(egui::Stroke::new(1.0, t.border)))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::rail::show(ui, self, app, &mut go));
             });
-            let mut at = seq;
-            if ui.add(egui::Slider::new(&mut at, 0..=l.replayable).text("event")).changed() {
-                go = Some(at);
-            }
-            if ui.add_enabled(paste.is_some(), egui::Button::new("Jump to paste")).clicked() {
-                go = paste;
-            }
-            ui.separator();
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                for line in self.note() {
-                    ui.label(line);
-                }
-            });
-            if let Some(t) = self.highlighted_text() {
-                ui.label("Highlighted on the page:");
-                ui.label(egui::RichText::new(t).italics());
-            }
-        }
         if let Some(seq) = go {
             self.seek(app, seq);
         }
@@ -283,10 +244,14 @@ pub fn load(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
     let doc = wordcraft_engine::io::open_bytes(name, bytes).map_err(|e| format!("{name}: {e}"))?;
     let env = match envelope::extract(&doc) {
         Ok(Some(env)) => env,
-        Ok(None) => return Err(format!("{name}: {}", Consistency::Missing.label())),
+        // No history: the document is shown as saved, with nothing to replay.
+        Ok(None) => return unrecorded(name, doc),
         Err(e) => return Err(format!("{name}: {}", Consistency::Corrupt(e.to_string()).label())),
     };
     let evidence: Value = serde_json::from_slice(&env.payload).map_err(|e| format!("{name}: {}", Consistency::Corrupt(e.to_string()).label()))?;
+    let entered = |v: Option<&str>| v.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let student = entered(evidence.pointer("/student/displayName").and_then(Value::as_str));
+    let assessment = entered(evidence.get("assignmentId").and_then(Value::as_str));
     let replay = Replay::from_evidence(&evidence).map_err(|e| format!("{name}: {}", Consistency::Corrupt(e.to_string()).label()))?;
     let start = replay.state_at(0).map_err(|e| format!("{name}: {}", Consistency::Corrupt(e.to_string()).label()))?;
     // Replay everything once: the furthest it gets is as far as the reviewer can seek.
@@ -307,7 +272,22 @@ pub fn load(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
         }
     };
     let replayable = state.seq;
-    Ok(Loaded { name: name.to_string(), replay, state, consistency, replayable, mark: None })
+    Ok(Loaded { name: name.to_string(), student, assessment, replay, state, consistency, replayable, mark: None })
+}
+
+/// A DOCX without an InkWitness history, shown as saved: "History missing", no events.
+fn unrecorded(name: &str, doc: wordcraft_doc::Document) -> Result<Loaded, String> {
+    let replay = Replay::from_evidence(&serde_json::json!({"events": []})).map_err(|e| format!("{name}: {e}"))?;
+    Ok(Loaded {
+        name: name.to_string(),
+        student: None,
+        assessment: None,
+        replay,
+        state: State::unrecorded(doc),
+        consistency: Consistency::Missing,
+        replayable: 0,
+        mark: None,
+    })
 }
 
 /// The range event `e` left in `st` (its after-anchor), checked against the text around it.

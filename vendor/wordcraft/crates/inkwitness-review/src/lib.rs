@@ -9,7 +9,10 @@
 //! Which route a page is comes from its URL ([`Route::from_url`]).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod card;
+pub mod rail;
 pub mod review;
+pub mod toolbar;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 pub mod writer;

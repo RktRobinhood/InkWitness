@@ -104,8 +104,9 @@ pub fn shown_id() -> egui::Id {
 
 /// Whether the bar may be shown for the current app state.
 pub fn visible(app: &WordApp) -> bool {
-    // Reading Mode permits text selection and copying, but never formatting controls.
-    if app.session.view.read_mode {
+    // Reading Mode and a viewer (FAL-448) permit text selection and copying, but never
+    // formatting controls.
+    if app.session.view.read_mode || app.viewer_chrome {
         return false;
     }
     // Never over a modal dialog or the Backstage.

@@ -1899,7 +1899,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // Keep the parent independently of egui's one memory popup: the toolbar's font, size and
     // colour controls use that slot for their own lists (as in a collapsed ribbon group).
     let mut open = app.canvas.context_menu_open;
-    if secondary_clicked || from_keys || eq_strip.is_some() {
+    // A viewer has no context menu: its commands edit the page (FAL-448).
+    if app.viewer_chrome {
+        open = false;
+    } else if secondary_clicked || from_keys || eq_strip.is_some() {
         egui::Popup::close_all(ui.ctx());
         open = true;
     } else if open && ui.input(|i| i.pointer.any_click()) {
@@ -2419,12 +2422,15 @@ fn active_balloon(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, id: u
     }
     let (mut reply, mut resolve, mut delete) = (false, false, false);
     child.add_space(2.0);
-    child.horizontal(|ui| {
-        let button = |ui: &mut Ui, s: &str| ui.add(egui::Button::new(egui::RichText::new(s).font(small.clone())).small()).clicked();
-        reply = button(ui, tl!("Reply"));
-        resolve = button(ui, if resolved { tl!("Reopen") } else { tl!("Resolve") });
-        delete = button(ui, tl!("Delete"));
-    });
+    // A viewer reads the thread only (FAL-448).
+    if !app.viewer_chrome {
+        child.horizontal(|ui| {
+            let button = |ui: &mut Ui, s: &str| ui.add(egui::Button::new(egui::RichText::new(s).font(small.clone())).small()).clicked();
+            reply = button(ui, tl!("Reply"));
+            resolve = button(ui, if resolved { tl!("Reopen") } else { tl!("Resolve") });
+            delete = button(ui, tl!("Delete"));
+        });
+    }
     let card = Rect::from_min_max(card.min, pos2(card.max.x, child.min_rect().max.y + 6.0));
     app.canvas.balloon_h = card.height();
     card_shapes(painter, &t, card, color, true, Some(slot));

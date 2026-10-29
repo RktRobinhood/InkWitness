@@ -15,6 +15,24 @@ use crate::theme::{Tokens, regular, semibold};
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    // A viewer (InkWitness Review, FAL-448) shows only the Navigation and Comments panes.
+    if app.viewer_chrome {
+        if app.session.view.nav_pane {
+            egui::Panel::left("nav_pane")
+                .default_size(260.0)
+                .resizable(true)
+                .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
+                .show(ui, |ui| nav(app, ui));
+        }
+        if app.session.view.comments_pane {
+            egui::Panel::right("comments_pane")
+                .default_size(290.0)
+                .resizable(true)
+                .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
+                .show(ui, |ui| comments(app, ui));
+        }
+        return;
+    }
     // SmartArt Design › Text Pane, while a SmartArt graphic WordCraft can edit is selected.
     if app.session.view.smart_art_pane && wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session).is_some() {
         egui::Panel::left("smart_art_pane")
@@ -436,7 +454,9 @@ fn comments(app: &mut WordApp, ui: &mut Ui) {
         let _ = app.run("view.commentsPane", json!({"value": false}));
         return;
     }
-    if crate::widgets::icon_text_button(ui, "newComment", tl!("New Comment"), regular(12.5)).clicked() {
+    // A viewer reads comments; it doesn't add, answer, resolve or delete them (FAL-448).
+    let viewer = app.viewer_chrome;
+    if !viewer && crate::widgets::icon_text_button(ui, "newComment", tl!("New Comment"), regular(12.5)).clicked() {
         let _ = app.run("review.newComment", json!({"text": ""}));
     }
     ui.separator();
@@ -468,6 +488,9 @@ fn comments(app: &mut WordApp, ui: &mut Ui) {
                         && let Some(a) = c.get("anchor").filter(|a| !a.is_null())
                     {
                         let _ = app.run("caret.set", json!({"pos": a}));
+                    }
+                    if viewer {
+                        return;
                     }
                     if ui.small_button(tl!("Reply")).clicked() {
                         replying = true;
