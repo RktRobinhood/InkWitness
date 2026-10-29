@@ -271,7 +271,7 @@ fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accent
 /// `text` on one line, cut at `n` characters, quoted.
 fn short(text: &str, n: usize) -> String {
     let flat = text.replace(wordcraft_inkwitness::PARA_MARK, " ");
-    let flat = flat.trim();
+    let flat = crate::card::unquote(flat.trim());
     let mut out: String = flat.chars().take(n).collect();
     if flat.chars().count() > n {
         out = format!("{}…", out.trim_end());
@@ -539,11 +539,16 @@ pub fn size(inserted: &str, deleted: &str) -> Option<String> {
         let words = t.split(|c: char| c.is_whitespace() || c == wordcraft_inkwitness::PARA_MARK).filter(|w| !w.is_empty()).count();
         (words, chars)
     };
+    // Only spaces or paragraph marks: "1 character added", not "0 words · 1 character added".
+    let both = |w: usize, c: usize| {
+        let chars = count(c, "character", "characters");
+        if w == 0 { chars } else { format!("{} · {chars}", count(w, "word", "words")) }
+    };
     let (iw, ic) = measure(inserted);
     let (dw, dc) = measure(deleted);
     match (ic > 0, dc > 0) {
-        (true, false) => Some(format!("{} · {} added", count(iw, "word", "words"), count(ic, "character", "characters"))),
-        (false, true) => Some(format!("{} · {} removed", count(dw, "word", "words"), count(dc, "character", "characters"))),
+        (true, false) => Some(format!("{} added", both(iw, ic))),
+        (false, true) => Some(format!("{} removed", both(dw, dc))),
         (true, true) => Some(format!("{} added, {} removed", count(ic, "character", "characters"), count(dc, "character", "characters"))),
         (false, false) => None,
     }

@@ -442,6 +442,9 @@ fn card_words_are_singular_for_one() {
     assert_eq!(size("a", ""), Some("1 word · 1 character added".into()));
     assert_eq!(size("", "two words"), Some("2 words · 9 characters removed".into()));
     assert_eq!(size("", ""), None);
+    assert_eq!(size(" ", ""), Some("1 character added".into()));
+    assert_eq!(crate::card::excerpt("“the facts speak”"), "“the facts speak”");
+    assert_eq!(crate::card::excerpt("\"quoted\" and more"), "“\"quoted\" and more”");
     assert_eq!(elapsed(65_000), "1:05 into the session");
     assert_eq!(elapsed(3_725_000), "1:02:05 into the session");
     assert_eq!(recorded("2026-10-28T09:00:00Z"), "28 Oct 2026, 09:00:00 UTC");

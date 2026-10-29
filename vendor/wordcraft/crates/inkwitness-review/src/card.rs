@@ -195,13 +195,23 @@ pub fn show(ui: &mut Ui, card: &Card, look: Look) -> Option<Action> {
 /// The excerpt as shown: paragraph marks as line breaks, quoted, cut at [`MAX_EXCERPT`].
 pub fn excerpt(text: &str) -> String {
     let flat = text.replace(wordcraft_inkwitness::PARA_MARK, "\n");
-    let trimmed = flat.trim();
+    let trimmed = unquote(flat.trim());
     let mut out: String = trimmed.chars().take(MAX_EXCERPT).collect();
     if trimmed.chars().count() > MAX_EXCERPT {
         out = out.trim_end().to_string();
         out.push('…');
     }
     format!("“{out}”")
+}
+
+/// `text` without one pair of quotation marks around all of it, so a pasted quotation isn't shown
+/// in doubled marks once it is quoted again.
+pub fn unquote(text: &str) -> &str {
+    let mut c = text.chars();
+    match (c.next(), c.next_back()) {
+        (Some('“' | '"' | '‘' | '\'' | '«' | '„'), Some('”' | '"' | '’' | '\'' | '»' | '“')) => c.as_str().trim(),
+        _ => text,
+    }
 }
 
 /// A type chip: the kind's tint with an icon and words.

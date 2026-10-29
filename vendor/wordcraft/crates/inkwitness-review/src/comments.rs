@@ -198,7 +198,7 @@ pub fn promote_text(l: &Loaded, seq: u64, kind: Option<FlagKind>, matched: Optio
     let size = crate::rail::size(ins, del).unwrap_or_else(|| "no text changed".into());
     let text = if ins.is_empty() { del } else { ins };
     let flat = text.replace(PARA_MARK, "\n");
-    let flat = flat.trim();
+    let flat = crate::card::unquote(flat.trim());
     let quote = if flat.is_empty() {
         String::new()
     } else if flat.chars().count() > MAX_QUOTE {
