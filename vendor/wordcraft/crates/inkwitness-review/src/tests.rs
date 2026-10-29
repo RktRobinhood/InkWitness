@@ -314,6 +314,36 @@ fn the_review_page_shows_no_editing_control() {
     assert!(!h.state().viewer_chrome && h.state().palette == wordcraft_ui_egui::theme::Palette::WordCraft);
 }
 
+/// FAL-448: the rulers' indent, margin and tab-stop markers edit the page, and they are painted,
+/// not accessible controls, so the test above can't see them. The page must not make room for a
+/// ruler however `view.ruler` gets turned on (a stored preference, the command, a shortcut),
+/// while the same window without the viewer chrome does.
+#[test]
+fn the_review_page_draws_no_ruler() {
+    let bytes = written_docx();
+    let mut h = review_page(Some(("essay.docx", bytes.as_slice())));
+    let canvas = |h: &mut egui_kittest::Harness<'static, (Review, WordApp)>| {
+        for _ in 0..4 {
+            h.step();
+        }
+        h.state().1.canvas.canvas_rect.unwrap_or_else(|| panic!("the page is shown"))
+    };
+    h.state_mut().1.session.view.ruler = false;
+    let bare = canvas(&mut h);
+    h.state_mut().1.session.view.ruler = true;
+    assert_eq!(canvas(&mut h), bare, "a ruler is drawn on the review page (view.ruler set)");
+    h.state_mut().1.session.view.ruler = false;
+    h.state_mut().1.run("view.ruler", json!({"value": true})).unwrap_or_else(|e| panic!("{e}"));
+    assert!(h.state().1.session.view.ruler);
+    assert_eq!(canvas(&mut h), bare, "a ruler is drawn on the review page (view.ruler run)");
+    // The check has teeth: without the viewer chrome, the ruler takes its strip off the page.
+    h.state_mut().1.viewer_chrome = false;
+    let with = canvas(&mut h);
+    h.state_mut().1.session.view.ruler = false;
+    let without = canvas(&mut h);
+    assert!(with.min.x > without.min.x && with.min.y > without.min.y, "the ruler isn't drawn in Write either ({with:?} vs {without:?})");
+}
+
 /// A viewer's shortcuts can't open editing UI: of the front end's commands only the Zoom and Word
 /// Count dialogs run; the view-only session still refuses every edit.
 #[test]

@@ -1074,7 +1074,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let dark_page = if read_mode { app.session.view.read_page_color == ReadPageColor::Inverse } else { app.session.view.dark_mode };
     let sepia_page = read_mode && app.session.view.read_page_color == ReadPageColor::Sepia;
     let dark_paper = wordcraft_render::DARK_PAPER;
+    // A viewer has no rulers: their indent, margin and tab-stop markers edit the page (FAL-448).
     let show_ruler = app.session.view.ruler
+        && !app.viewer_chrome
         && app.session.view.mode == wordcraft_layout::ViewMode::Print
         && !app.session.view.read_mode
         && crate::chrome::Screen::of(&app.session.view) == crate::chrome::Screen::Normal;

@@ -58,6 +58,7 @@ Keep this list current. Every change to `vendor/wordcraft/` must be listed here 
 | `crates/ui-egui/src/lib.rs` | `WordApp::viewer_chrome` and `WordApp::palette` (both per page, never saved); `applied_theme` keyed by palette; `fonts_ready`; with `viewer_chrome` the frame draws only the panes and the page (no title bar, ribbon, status bar, File page or keytips), and `execute` refuses the `ui.*` commands that open editing UI (`viewer_allows`) | FAL-448: viewer-only `/review/`. Off by default, so `/write/` and the desktop app are unchanged |
 | `crates/ui-egui/src/panes.rs` | With `viewer_chrome`, only the Navigation and Comments panes, and the Comments pane without New Comment, Reply, Resolve or Delete | Same |
 | `crates/ui-egui/src/canvas.rs` | With `viewer_chrome`, no context menu and no Reply/Resolve/Delete on the active comment balloon | Same |
+| `crates/ui-egui/src/canvas.rs` | With `viewer_chrome`, no rulers (their indent, margin and tab-stop markers and the tab-stop selector edit the page), whatever `view.ruler` says | Same |
 | `crates/ui-egui/src/mini_toolbar.rs` | No mini toolbar with `viewer_chrome` | Same |
 | `crates/ui-egui/src/widgets.rs` | `enabled` is false for a command a view-only session refuses | Same: refused controls show greyed out |
 | `crates/inkwitness/src/replay.rs` | `State::unrecorded` | FAL-448: a file with no history is shown as saved ("History missing") instead of refused |
