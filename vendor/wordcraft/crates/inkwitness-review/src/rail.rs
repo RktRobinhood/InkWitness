@@ -66,6 +66,10 @@ pub enum RailAction {
     Sample,
     /// Open a DOCX.
     Open,
+    /// Take the name typed in the rail as the teacher's, for their tracked changes.
+    SetName,
+    /// Type another name.
+    ChangeName,
 }
 
 /// Draw the rail's contents.
@@ -80,6 +84,9 @@ pub fn show(ui: &mut Ui, review: &mut Review, app: &WordApp) -> Option<RailActio
     review.typing = false;
     if review.loaded.is_none() {
         return act;
+    }
+    if app.viewer_ribbon {
+        edit_card(ui, review, app, &t, &a, &mut act);
     }
     if review.draft.is_some() {
         draft(ui, review, &t, &a, &mut act);
@@ -354,8 +361,59 @@ fn draft(ui: &mut Ui, review: &mut Review, t: &Tokens, a: &Accents, act: &mut Op
             }
         });
     });
-    review.typing = typing || review_focus;
+    review.typing |= typing || review_focus;
     review.took_focus = review_focus;
+}
+
+/// With Full ribbon on: the teacher's edits. Their name first (this browser remembers it), then
+/// where they can edit: the final document, at the end of the history.
+fn edit_card(ui: &mut Ui, review: &mut Review, app: &WordApp, t: &Tokens, a: &Accents, act: &mut Option<RailAction>) {
+    let Some(l) = &review.loaded else { return };
+    let (end, at_end) = (l.replayable, l.state.seq == l.replayable);
+    let editing = review.editing(app);
+    let mut typing = false;
+    egui::Frame::NONE.fill(a.card).stroke(Stroke::new(1.0, t.border)).corner_radius(CornerRadius::same(8)).inner_margin(12).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing = vec2(6.0, 5.0);
+        ui.label(RichText::new("Your edits").font(semibold(14.0)).color(t.text));
+        let say = |ui: &mut Ui, text: &str| ui.add(egui::Label::new(RichText::new(text).font(regular(12.0)).color(t.text_dim)).wrap());
+        if review.teacher.trim().is_empty() {
+            say(ui, "Type your name to edit the final document. Every change you make is a tracked change in your name, and goes only into the review copy.");
+            let edit = ui.add(egui::TextEdit::singleline(&mut review.name_draft).desired_width(f32::INFINITY).font(regular(13.0)).hint_text("Your name"));
+            edit.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Your name"));
+            typing = edit.has_focus();
+            let entered = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let ready = !review.name_draft.trim().is_empty();
+            let start = ui.add_enabled(
+                ready,
+                egui::Button::new(RichText::new("Start editing").font(semibold(12.5)).color(t.on_accent)).fill(t.accent).min_size(vec2(0.0, 28.0)),
+            );
+            focus_ring(ui, &start, a);
+            if ready && (start.clicked() || entered) {
+                *act = Some(RailAction::SetName);
+            }
+            return;
+        }
+        if editing {
+            say(ui, &format!("Editing as {}. Every change is a tracked change in your name. Your edits go only into the review copy; the student's file is never changed.", review.teacher.trim()));
+            if let Some(n) = &review.edit_note {
+                ui.add(egui::Label::new(RichText::new(n).font(regular(12.0)).color(t.text)).wrap());
+            }
+        } else if !at_end {
+            say(ui, "Your edits go into the final document. Stepping through the history shows the student's text; your edits show again at the end.");
+            let go = ui.add(egui::Button::new(RichText::new("Go to the end").font(medium(12.5)).color(t.text)).min_size(vec2(0.0, 26.0)));
+            focus_ring(ui, &go, a);
+            if go.clicked() {
+                *act = Some(RailAction::GoTo(end));
+            }
+        }
+        let change = ui.add(egui::Button::new(RichText::new("Change name").font(medium(12.0)).color(t.text)).min_size(vec2(0.0, 24.0)));
+        focus_ring(ui, &change, a);
+        if change.on_hover_text("Your changes so far keep the name they were made with.").clicked() {
+            *act = Some(RailAction::ChangeName);
+        }
+    });
+    review.typing |= typing;
 }
 
 /// The file's header: the mark, its name, who and what it is for, the history badge and caveat.

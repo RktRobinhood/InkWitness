@@ -4,13 +4,15 @@
 //!   Save puts the history into the DOCX as its evidence part.
 //! - [`review`]: the `/review/` route opens such a DOCX from a local file (picker or drop, no
 //!   network), rebuilds any recorded state in WordCraft's own page renderer, read-only, and
-//!   seeks to an event with its range highlighted and scrolled into view.
+//!   seeks to an event with its range highlighted and scrolled into view. With Full ribbon on,
+//!   the teacher can edit the final document as tracked changes in their name ([`edits`]).
 //!
 //! Which route a page is comes from its URL ([`Route::from_url`]).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod card;
 pub mod comments;
+pub mod edits;
 pub mod export;
 pub mod flags;
 pub mod player;
