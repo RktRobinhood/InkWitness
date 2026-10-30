@@ -10,8 +10,13 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod card;
+pub mod comments;
+pub mod export;
+pub mod flags;
+pub mod player;
 pub mod rail;
 pub mod review;
+pub mod sample;
 pub mod toolbar;
 #[cfg(target_arch = "wasm32")]
 pub mod web;

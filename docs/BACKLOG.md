@@ -67,6 +67,8 @@ Status convention: `[ ]` not started, `[~]` underway, `[x]` verified. The specif
 - [ ] Review detail, diagnostic summary, neutral interview prompts.
 - [ ] Student source file never mutated by teacher; optional annotated export.
 
+FAL-519 demo build (2026-10-29, branch `fal-519-demo-replay`, stacked on FAL-448), toward the items above. Built: the bottom player (Play/Pause, 0.5–16×, Skip idle, Pause at flags, previous/next event and flag, Space/K/←/→/[ ] shortcuts, flag pins with hover cards); flags computed in one place (`inkwitness-review/src/flags.rs`: paste, large paste, large insertion, large deletion, text already there, AI-style phrase quoting the exact chatbot wording, history stops), never a score or an accusation; teacher comments in a layer of their own, drawn on the page as WordCraft comments; Promote to comment with editable, neutral pre-filled drafts; a `(reviewed).docx` review copy with the comments as Word comments and no history; a one-click synthetic sample submission. Tests: `cargo test -p wordcraft-inkwitness-review` (21 pass). NOT TESTED: the review copy in Word desktop; smooth scrolling (FAL-478); comments are in memory only and are lost on reload.
+
 ## G3 - Reliability and policy (P0/P1)
 - [ ] Cross-student identity and cross-tab attempt collision regression tests.
 - [ ] Structural changes (paragraph/hard break) never counted as false large text events.

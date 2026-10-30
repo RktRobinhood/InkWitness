@@ -219,9 +219,41 @@ fn labelled<S>(h: &egui_kittest::Harness<'static, S>, label: &str) -> usize {
     h.query_all_by_label(label).filter(|n| !matches!(n.accesskit_node().role(), Role::Label | Role::TextRun | Role::Paragraph)).count()
 }
 
-/// The rail's controls and the Navigation pane's (Find): all of them only look.
-const RAIL: &[&str] =
-    &["First event", "Previous event", "Next event", "Last event", "Event", "Jump to paste", "Go to", "Details", "Headings", "Pages", "Results"];
+/// The rail's, the player dock's and the Navigation pane's (Find) controls: they look, play, or
+/// write the teacher's own comments, which never enter the student's file. The rail's two tabs
+/// carry a count ("Flags (3)").
+const RAIL: &[&str] = &[
+    "Try a sample submission",
+    "Go to",
+    "Promote to comment",
+    "Details",
+    "Comment text",
+    "Save comment",
+    "Discard",
+    "Show",
+    "Edit",
+    "Remove",
+    "Download review copy (.docx)",
+    "Previous flag",
+    "Previous event",
+    "Play",
+    "Pause",
+    "Next event",
+    "Next flag",
+    "+ Add comment",
+    "Pause at flags",
+    "Skip idle",
+    "Playback speed",
+    "Replay timeline",
+    "Headings",
+    "Pages",
+    "Results",
+];
+
+/// Whether `name` is one of the rail's or the dock's controls ([`RAIL`]).
+fn on_rail(name: &str) -> bool {
+    RAIL.contains(&name) || name.starts_with("Flags (") || name.starts_with("Comments (")
+}
 
 /// Every control on the page (a node a reader can act on, other than the page itself), with its
 /// accessible name.
@@ -283,7 +315,7 @@ fn the_review_page_shows_no_editing_control() {
         let strays = controls(&h)
             .into_iter()
             .filter(|(role, l)| match l.as_deref() {
-                Some(l) => !(SHOWN.contains(&l) || RAIL.contains(&l)),
+                Some(l) => !(SHOWN.contains(&l) || on_rail(l)),
                 None => !(panes && *role == egui::accesskit::Role::TextInput),
             })
             .collect::<Vec<_>>();
@@ -410,9 +442,170 @@ fn card_words_are_singular_for_one() {
     assert_eq!(size("a", ""), Some("1 word · 1 character added".into()));
     assert_eq!(size("", "two words"), Some("2 words · 9 characters removed".into()));
     assert_eq!(size("", ""), None);
+    assert_eq!(size(" ", ""), Some("1 character added".into()));
+    assert_eq!(crate::card::excerpt("“the facts speak”"), "“the facts speak”");
+    assert_eq!(crate::card::excerpt("\"quoted\" and more"), "“\"quoted\" and more”");
     assert_eq!(elapsed(65_000), "1:05 into the session");
     assert_eq!(elapsed(3_725_000), "1:02:05 into the session");
     assert_eq!(recorded("2026-10-28T09:00:00Z"), "28 Oct 2026, 09:00:00 UTC");
     assert_eq!(recorded("not a time"), "not a time");
     assert_eq!(crate::card::excerpt(&format!("one{}two", wordcraft_inkwitness::PARA_MARK)), "“one\ntwo”");
+}
+
+/// FAL-519: the sample submission is a real recorded history that replays, and every flag the
+/// demo shows is in it.
+#[test]
+fn the_sample_submission_replays_with_its_flags() {
+    use crate::flags::FlagKind;
+    let t = std::time::Instant::now();
+    let (name, bytes) = crate::sample::docx();
+    let made = t.elapsed();
+    let l = super::review::load(&name, &bytes).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(l.consistency, Consistency::Consistent, "{:?}", l.consistency);
+    assert_eq!(l.student.as_deref(), Some("Example Student"));
+    let flags = crate::flags::compute(&l);
+    let kinds: Vec<FlagKind> = flags.iter().map(|f| f.kind).collect();
+    for k in [FlagKind::Paste, FlagKind::LargePaste, FlagKind::AiPhrase, FlagKind::LargeDelete] {
+        assert!(kinds.contains(&k), "{k:?} is missing: {flags:?}");
+    }
+    let ai = flags.iter().find(|f| f.kind == FlagKind::AiPhrase).unwrap_or_else(|| panic!("no AI-style phrase"));
+    assert_eq!(ai.matched.as_deref(), Some("Certainly! Here"));
+    // The chatbot's wrapper was trimmed: the final text keeps only the paragraph between.
+    let text = l.last.doc.plain_text(StoryRef::Body);
+    assert!(text.contains("In the natural sciences") && !text.contains("I hope this helps") && !text.contains("Certainly"), "{text}");
+    assert!(made.as_secs_f32() < 5.0, "the sample takes {made:?} to make");
+}
+
+/// The text between comment `id`'s start and end in `doc`'s body.
+fn commented(doc: &Document, id: u32) -> Option<String> {
+    use wordcraft_doc::InlineObject;
+    use wordcraft_doc::para::OBJ;
+    let mut out: Option<String> = None;
+    for b in &doc.body {
+        let Some(p) = b.as_para() else { continue };
+        let mut objs = p.objects.iter();
+        for c in p.text.chars() {
+            if c == OBJ {
+                match objs.next() {
+                    Some(InlineObject::CommentStart { id: i }) if *i == id => out = Some(String::new()),
+                    Some(InlineObject::CommentEnd { id: i }) if *i == id => return out,
+                    _ => {}
+                }
+            } else if let Some(o) = out.as_mut() {
+                o.push(c);
+            }
+        }
+        if let Some(o) = out.as_mut() {
+            o.push('\n');
+        }
+    }
+    out
+}
+
+/// FAL-519: Promote to comment on the AI-style phrase flag opens an editable draft from the
+/// record; the trimmed text is saved as a teacher comment, drawn on the page on the pasted
+/// passage, while the replayed state and the highlight stay exactly as recorded.
+#[test]
+fn a_promoted_flag_becomes_an_edited_comment_on_the_page() {
+    use crate::flags::FlagKind;
+    let (name, bytes) = crate::sample::docx();
+    let mut app = review_app();
+    let mut review = Review::default();
+    review.open(&mut app, &name, &bytes);
+    let seq = review.flags.iter().find(|f| f.kind == FlagKind::AiPhrase).map(|f| f.seq).unwrap_or_else(|| panic!("no flag"));
+    review.promote(&mut app, seq);
+    let d = review.draft.clone().unwrap_or_else(|| panic!("no draft"));
+    assert!(d.text.contains("“Certainly! Here”") && d.text.trim_end().ends_with('?'), "{}", d.text);
+    assert!(d.anchor.as_ref().is_some_and(|a| a.quote.starts_with("In the natural sciences")), "anchored on what survives: {:?}", d.anchor);
+    // The teacher trims the draft to its first line and adds a word.
+    let first = d.text.lines().next().unwrap_or_default().to_string();
+    if let Some(dr) = review.draft.as_mut() {
+        dr.text = format!("{first} Let's talk about this paragraph.");
+    }
+    review.save_draft();
+    assert!(review.draft.is_none() && review.comments.len() == 1 && review.promoted(seq));
+    review.logic(&mut app);
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
+    assert!(l.state.doc.comments.is_empty(), "the replayed state never gets the comment");
+    let (id, c) = app.session.doc.comments.iter().next().unwrap_or_else(|| panic!("no comment on the page"));
+    assert_eq!(c.author, crate::export::AUTHOR);
+    let on = commented(&app.session.doc, *id).unwrap_or_default();
+    assert!(on.starts_with("In the natural sciences"), "{on}");
+    // The page's highlight is still exactly the event's text.
+    let (a, b) = app.canvas.review_mark.clone().unwrap_or_else(|| panic!("no highlight"));
+    let hi = review.highlighted_text().unwrap_or_default();
+    let on_page = wordcraft_inkwitness::replay::State::unrecorded(app.session.doc.clone()).text(&a, &b).replace(wordcraft_doc::para::OBJ, "");
+    assert_eq!(on_page.replace(['\n', wordcraft_inkwitness::PARA_MARK], ""), hi.replace('\n', ""));
+}
+
+/// FAL-519: a comment on text selected on the page (offsets shifted by earlier comments) lands
+/// on that text, and the review copy carries both as Word comments; the student's file is not
+/// touched.
+#[test]
+fn comments_on_selected_text_go_into_the_review_copy() {
+    let (name, bytes) = crate::sample::docx();
+    let mut app = review_app();
+    let mut review = Review::default();
+    review.open(&mut app, &name, &bytes);
+    let last = review.loaded.as_ref().map_or(0, |l| l.replayable);
+    let comment_on = |review: &mut Review, app: &mut WordApp, word: &str, text: &str| {
+        review.logic(app);
+        let doc = &app.session.doc;
+        let (k, p) = doc
+            .body
+            .iter()
+            .enumerate()
+            .find_map(|(k, b)| b.as_para().filter(|p| p.text.contains(word)).map(|p| (k, p)))
+            .unwrap_or_else(|| panic!("{word}"));
+        let at = p.text.find(word).unwrap_or(0);
+        let pos = |off| wordcraft_doc::Pos::new(StoryRef::Body, wordcraft_doc::Path(vec![u32::try_from(k).unwrap_or(0)]), off);
+        app.session.sel = wordcraft_engine::Selection { anchor: pos(at), focus: pos(at + word.len()) };
+        review.comment_here(app);
+        if let Some(d) = review.draft.as_mut() {
+            d.text = text.into();
+        }
+        review.save_draft();
+    };
+    review.go(&mut app, last);
+    comment_on(&mut review, &mut app, "two honest accounts", "Good point: give an example.");
+    // Same paragraph, after the first comment's marks.
+    comment_on(&mut review, &mut app, "the same event", "Which event?");
+    assert_eq!(review.comments.len(), 2);
+    let quotes: Vec<&str> = review.comments.iter().filter_map(|c| c.anchor.as_ref().map(|a| a.quote.as_str())).collect();
+    assert_eq!(quotes, ["two honest accounts", "the same event"]);
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
+    let (copy, out) = crate::export::review_copy(l, &review.comments).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(copy, "Example Student - TOK essay (sample) (reviewed).docx");
+    let doc = wordcraft_engine::io::open_bytes(&copy, &out).unwrap_or_else(|e| panic!("{e}"));
+    let mut found: Vec<String> = doc.comments.keys().filter_map(|id| commented(&doc, *id)).collect();
+    found.sort();
+    assert_eq!(found, ["the same event", "two honest accounts"]);
+    assert!(wordcraft_inkwitness::envelope::extract(&doc).ok().flatten().is_none(), "the review copy carries no history");
+    // The student's file is what it was.
+    let again = super::review::load(&name, &bytes).unwrap_or_else(|e| panic!("{e}"));
+    assert!(again.last.doc.comments.is_empty());
+}
+
+/// FAL-519: + Add comment opens a draft whose text box has the keyboard, so typing goes into the
+/// comment, not to the page or the player's shortcuts (Space plays and pauses).
+#[test]
+fn a_new_comment_draft_has_the_keyboard() {
+    use egui_kittest::kittest::Queryable;
+    let (name, bytes) = crate::sample::docx();
+    let mut h = review_page(Some((&name, &bytes)));
+    let seq = h.state().0.loaded.as_ref().map_or(0, |l| l.state.seq);
+    h.get_by_label("+ Add comment").click();
+    for _ in 0..4 {
+        h.step();
+    }
+    assert!(h.state().0.draft.is_some(), "a draft is open");
+    assert!(h.state().0.typing, "the draft's text box has the keyboard");
+    h.get_by_label("Comment text").type_text("Which event? ");
+    for _ in 0..3 {
+        h.step();
+    }
+    let (review, _) = h.state();
+    assert_eq!(review.draft.as_ref().map(|d| d.text.as_str()), Some("Which event? "));
+    assert_eq!(review.loaded.as_ref().map_or(0, |l| l.state.seq), seq, "typing never moved the replay");
+    assert!(!review.player.playing);
 }

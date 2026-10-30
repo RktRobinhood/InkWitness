@@ -67,13 +67,23 @@ pub struct Card {
     pub excerpt: Option<String>,
     /// Technical fields (gestureId, the anchor check, clipboard formats, source), under Details.
     pub details: Vec<(String, String)>,
+    /// One quiet line on what a flag means and what it can't tell.
+    pub note: Option<String>,
+    /// The chip's colours, when they aren't the kind's (a flag's).
+    pub tint: Option<Tint>,
+    /// Offer Promote to comment.
+    pub promote: bool,
+    /// Already promoted: the card says so.
+    pub promoted: bool,
 }
 
-/// What the reader asked a card to do. T3 adds Promote.
+/// What the reader asked a card to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     /// Show the state after this event.
     GoTo(u64),
+    /// Open a teacher comment draft pre-filled from this card's event.
+    Promote(u64),
 }
 
 /// How a card is drawn.
@@ -92,7 +102,7 @@ pub const MAX_EXCERPT: usize = 280;
 pub fn show(ui: &mut Ui, card: &Card, look: Look) -> Option<Action> {
     let t = Tokens::get(ui.ctx());
     let a = Accents::get(ui.ctx());
-    let tint = card.kind.tint(&a);
+    let tint = card.tint.unwrap_or_else(|| card.kind.tint(&a));
     let mut action = None;
     let edge = if look.current { Stroke::new(1.5, t.accent) } else { Stroke::new(1.0, t.border) };
     let frame = egui::Frame::NONE.fill(a.card).stroke(edge).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin {
@@ -128,6 +138,9 @@ pub fn show(ui: &mut Ui, card: &Card, look: Look) -> Option<Action> {
         if !meta.is_empty() {
             ui.label(RichText::new(meta.join(" · ")).font(regular(12.0)).color(t.text_dim));
         }
+        if let Some(n) = card.note.as_deref().filter(|_| look.expanded) {
+            ui.add(egui::Label::new(RichText::new(n).font(regular(11.5)).color(t.text_dim)).wrap());
+        }
         if look.expanded
             && let Some(x) = card.excerpt.as_deref().filter(|x| !x.trim().is_empty())
         {
@@ -135,6 +148,25 @@ pub fn show(ui: &mut Ui, card: &Card, look: Look) -> Option<Action> {
             egui::Frame::NONE.fill(t.panel).corner_radius(CornerRadius::same(4)).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.label(RichText::new(excerpt(x)).font(regular(12.5)).color(t.text).italics());
+            });
+        }
+        if (card.promote || card.promoted)
+            && let Some(seq) = card.seq
+        {
+            ui.horizontal(|ui| {
+                if card.promoted {
+                    let mut done = a.action;
+                    done.fill = a.card;
+                    chip(ui, "check", "Promoted to a comment", done);
+                } else {
+                    let b = ui.add(
+                        egui::Button::new(RichText::new("Promote to comment").font(medium(12.0)).color(t.on_accent)).fill(t.accent).min_size(vec2(0.0, 26.0)),
+                    );
+                    focus_ring(ui, &b, &a);
+                    if b.on_hover_text("Start a teacher comment from this moment. You can edit it before saving; the student sees it only in a review copy you return.").clicked() {
+                        action = Some(Action::Promote(seq));
+                    }
+                }
             });
         }
         if look.expanded && !card.details.is_empty() {
@@ -163,13 +195,23 @@ pub fn show(ui: &mut Ui, card: &Card, look: Look) -> Option<Action> {
 /// The excerpt as shown: paragraph marks as line breaks, quoted, cut at [`MAX_EXCERPT`].
 pub fn excerpt(text: &str) -> String {
     let flat = text.replace(wordcraft_inkwitness::PARA_MARK, "\n");
-    let trimmed = flat.trim();
+    let trimmed = unquote(flat.trim());
     let mut out: String = trimmed.chars().take(MAX_EXCERPT).collect();
     if trimmed.chars().count() > MAX_EXCERPT {
         out = out.trim_end().to_string();
         out.push('…');
     }
     format!("“{out}”")
+}
+
+/// `text` without one pair of quotation marks around all of it, so a pasted quotation isn't shown
+/// in doubled marks once it is quoted again.
+pub fn unquote(text: &str) -> &str {
+    let mut c = text.chars();
+    match (c.next(), c.next_back()) {
+        (Some('“' | '"' | '‘' | '\'' | '«' | '„'), Some('”' | '"' | '’' | '\'' | '»' | '“')) => c.as_str().trim(),
+        _ => text,
+    }
 }
 
 /// A type chip: the kind's tint with an icon and words.

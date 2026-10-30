@@ -12,13 +12,27 @@ pub const WRITER_VERSION: &str = concat!("inkwitness-g0-preview/", env!("CARGO_P
 ///
 /// G0 has no student onboarding or attestation yet (G1): the attempt's identity and policy
 /// acknowledgment are placeholders, and say so.
-pub fn attach(app: &mut WordApp, mut env: Box<dyn Env>, now: Box<dyn Fn() -> String>) -> Recorder {
+pub fn attach(app: &mut WordApp, env: Box<dyn Env>, now: Box<dyn Fn() -> String>) -> Recorder {
+    attach_for(app, env, now, None)
+}
+
+/// Who a scripted session writes as (the sample submission, [`crate::sample`]).
+pub struct Identity {
+    pub student: String,
+    pub assignment: String,
+}
+
+/// [`attach`], writing as `who` when given (G1's onboarding enters it on the page).
+pub fn attach_for(app: &mut WordApp, mut env: Box<dyn Env>, now: Box<dyn Fn() -> String>, who: Option<Identity>) -> Recorder {
     let started = env.now_iso();
     let config = Config { attempt_id: env.uuid(), session_span_id: env.uuid(), field_id: "essay".into(), section_id: Some("main".into()) };
+    let entered = who.is_some();
+    let (student, assignment) =
+        who.map_or_else(|| ("Not entered (G0 technical preview)".to_string(), "g0-technical-preview".to_string()), |w| (w.student, w.assignment));
     let attempt = Attempt {
-        assignment_id: "g0-technical-preview".into(),
-        student_display_name: "Not entered (G0 technical preview)".into(),
-        identity_entered_by_student: false,
+        assignment_id: assignment,
+        student_display_name: student,
+        identity_entered_by_student: entered,
         entered_at_local: started.clone(),
         policy_version: "g0-preview-no-attestation".into(),
         acknowledged_at_local: started.clone(),
