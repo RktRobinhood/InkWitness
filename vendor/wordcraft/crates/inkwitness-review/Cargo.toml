@@ -21,8 +21,9 @@ chrono = { workspace = true }
 [dev-dependencies]
 egui_kittest = { workspace = true }
 
-# The browser's clock and random ids for the recorder, and the review page's status region.
+# The browser's clock and random ids for the recorder, the review page's status region, and
+# the review page's remembered choices (localStorage).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "Node", "Crypto", "Performance", "CssStyleDeclaration"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "Node", "Crypto", "Performance", "CssStyleDeclaration", "Storage"] }
 

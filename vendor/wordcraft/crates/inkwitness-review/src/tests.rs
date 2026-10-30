@@ -695,3 +695,153 @@ fn pictures_come_from_the_saved_file() {
     let reopened = wordcraft_engine::io::open_bytes(&name, &copy).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(reopened.media.values().map(|b| b.to_vec()).collect::<Vec<_>>(), vec![PNG.to_vec()], "the review copy has it");
 }
+
+/// Select `word`'s first occurrence on the page (the body's paragraphs as shown).
+fn select_word(app: &mut WordApp, word: &str) {
+    let doc = &app.session.doc;
+    let (k, at) = doc
+        .body
+        .iter()
+        .enumerate()
+        .find_map(|(k, b)| b.as_para().and_then(|p| p.text.find(word)).map(|at| (k, at)))
+        .unwrap_or_else(|| panic!("{word} isn't on the page"));
+    let pos = |off| wordcraft_doc::Pos::new(StoryRef::Body, wordcraft_doc::Path(vec![u32::try_from(k).unwrap_or(0)]), off);
+    app.session.sel = wordcraft_engine::Selection { anchor: pos(at), focus: pos(at + word.len()) };
+}
+
+/// The highlight colour of `word`'s first occurrence in `doc`'s body.
+fn highlight_of(doc: &Document, word: &str) -> Option<wordcraft_doc::props::Highlight> {
+    doc.body.iter().find_map(|b| b.as_para().and_then(|p| p.text.find(word).map(|at| p.props_at(at + 1).highlight)))?
+}
+
+/// FAL-547: Highlight paints the selected text on the page, in the colour picked, without
+/// changing the page's document or moving the view; it is listed with the comments, can be
+/// removed, and goes into the review copy as a Word highlight. Nothing selected highlights
+/// nothing. The student's file is untouched.
+#[test]
+fn highlights_are_painted_on_the_page_and_go_into_the_review_copy() {
+    use wordcraft_doc::props::Highlight;
+    let (name, bytes) = crate::sample::docx();
+    let mut app = review_app();
+    let mut review = Review::default();
+    review.open(&mut app, &name, &bytes);
+    let last = review.loaded.as_ref().map_or(0, |l| l.replayable);
+    review.go(&mut app, last);
+    review.logic(&mut app);
+
+    // Nothing selected: nothing highlighted, and the rail says why.
+    app.session.sel = wordcraft_engine::Selection::caret(app.session.doc.start_of(StoryRef::Body));
+    review.highlight_here(&mut app, Highlight::Yellow);
+    assert!(review.comments.is_empty());
+    assert!(review.notice.as_deref().is_some_and(|n| n.contains("Select text")), "{:?}", review.notice);
+
+    let page = app.session.doc.clone();
+    select_word(&mut app, "two honest accounts");
+    let sel = app.session.sel.clone();
+    review.highlight_here(&mut app, Highlight::Turquoise);
+    select_word(&mut app, "the same event");
+    review.highlight_here(&mut app, Highlight::Yellow);
+    assert_eq!(review.comments.len(), 2);
+    assert!(review.comments.iter().all(|c| c.highlight.is_some() && c.text.is_empty()));
+    assert_eq!(review.highlight_colour(), Highlight::Yellow, "the last colour picked");
+    assert_eq!(review.tab, super::review::RailTab::Comments);
+    assert!(app.session.doc.same_content(&page), "highlights don't change the page's document");
+    assert_eq!(app.canvas.review_highlights.len(), 2, "both are painted");
+    let (a, b, fill) = app.canvas.review_highlights.first().cloned().unwrap_or_else(|| panic!("painted"));
+    assert_eq!((a, b), sel.ordered(), "on the selected text");
+    assert_eq!(fill, crate::toolbar::page_colour(Highlight::Turquoise));
+    review.logic(&mut app);
+    assert!(app.session.doc.same_content(&page), "and the page isn't put back over them");
+
+    // An earlier moment, before the text was written: nothing to paint there.
+    review.go(&mut app, 1);
+    assert!(app.canvas.review_highlights.is_empty(), "painted where the text doesn't exist yet");
+    review.go(&mut app, last);
+    assert_eq!(app.canvas.review_highlights.len(), 2);
+
+    // The review copy has Word highlights, and no comment for them.
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
+    let (copy, out) = crate::export::review_copy(l, &review.comments).unwrap_or_else(|e| panic!("{e}"));
+    let doc = wordcraft_engine::io::open_bytes(&copy, &out).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(highlight_of(&doc, "two honest accounts"), Some(Highlight::Turquoise));
+    assert_eq!(highlight_of(&doc, "the same event"), Some(Highlight::Yellow));
+    assert_eq!(highlight_of(&doc, "Example"), None, "only the highlighted text");
+    assert!(doc.comments.is_empty(), "a highlight is not a comment");
+
+    // Removed: no longer painted, and not in the review copy.
+    let id = review.comments.first().map_or(0, |c| c.id);
+    review.rail(&mut app, crate::rail::RailAction::Delete(id));
+    assert_eq!(app.canvas.review_highlights.len(), 1);
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
+    let (copy, out) = crate::export::review_copy(l, &review.comments).unwrap_or_else(|e| panic!("{e}"));
+    let doc = wordcraft_engine::io::open_bytes(&copy, &out).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(highlight_of(&doc, "two honest accounts"), None);
+
+    // The student's file is what it was.
+    let again = super::review::load(&name, &bytes).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(highlight_of(&again.last.doc, "the same event"), None);
+}
+
+/// FAL-547: the toolbar's Highlight (with its colour menu) and New comment act on the selected
+/// text; Full ribbon brings WordCraft's ribbon back without its File tab or its Share and Editing
+/// buttons, and the document still can't be changed.
+#[test]
+fn the_toolbar_highlights_comments_and_shows_the_full_ribbon() {
+    use egui_kittest::kittest::Queryable;
+    let (name, bytes) = crate::sample::docx();
+    let mut h = review_page(Some((&name, &bytes)));
+    let step = |h: &mut egui_kittest::Harness<'static, (Review, WordApp)>| {
+        for _ in 0..4 {
+            h.step();
+        }
+    };
+    {
+        let (review, app) = h.state_mut();
+        review.logic(app);
+        select_word(app, "two honest accounts");
+    }
+    h.get_by_label("Highlight colour").click();
+    step(&mut h);
+    h.get_by_label("Green").click();
+    step(&mut h);
+    let highlights: Vec<_> = h.state().0.comments.iter().filter_map(|c| c.highlight).collect();
+    assert_eq!(highlights, [wordcraft_doc::props::Highlight::BrightGreen], "picking a colour highlights in it");
+    {
+        let (review, app) = h.state_mut();
+        review.logic(app);
+        select_word(app, "the same event");
+    }
+    h.get_by_label("New comment").click();
+    step(&mut h);
+    assert!(h.state().0.draft.as_ref().is_some_and(|d| d.anchor.as_ref().is_some_and(|a| a.quote == "the same event")), "a draft on the selection");
+
+    // Full ribbon.
+    for name in ["Home", "Insert", "View"] {
+        assert_eq!(labelled(&h, name), 0, "{name} shows before Full ribbon is on");
+    }
+    h.get_by_label("Full ribbon").click();
+    step(&mut h);
+    assert!(h.state().1.viewer_ribbon);
+    for name in ["Home", "Insert", "Review", "View"] {
+        assert!(labelled(&h, name) >= 1, "{name} is missing from the full ribbon");
+    }
+    for name in ["File", "Share", "Editing", "Reviewing", "AutoSave"] {
+        assert_eq!(labelled(&h, name), 0, "{name} is on the review page's ribbon");
+    }
+    let shown = h.state().1.session.doc.clone();
+    {
+        let app = &mut h.state_mut().1;
+        assert!(app.run("ui.tab", json!({"tab": "Insert"})).is_ok(), "the ribbon's tabs switch");
+        assert_eq!(app.ui.tab, "Insert");
+        assert!(app.run("ui.tab", json!({"tab": "File"})).is_err(), "but not to File");
+        for (id, p) in [("text.insert", json!({"text": "x"})), ("format.bold", json!({})), ("file.save", json!({"path": "copy.docx"}))] {
+            assert!(app.run(id, p.clone()).is_err(), "{id} ran on the review page with the full ribbon");
+        }
+    }
+    step(&mut h);
+    assert!(h.state().1.session.doc.same_content(&shown), "the full ribbon changed the reviewed document");
+    h.get_by_label("Full ribbon").click();
+    step(&mut h);
+    assert!(!h.state().1.viewer_ribbon);
+    assert_eq!(labelled(&h, "Insert"), 0, "the ribbon is hidden again");
+}

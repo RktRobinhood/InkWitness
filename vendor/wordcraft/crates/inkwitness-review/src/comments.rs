@@ -1,5 +1,5 @@
-//! Teacher comments (FAL-519, from FAL-449 and FAL-450): a review layer kept apart from the
-//! student's document and its evidence. A comment is anchored in the **final** recorded document
+//! Teacher comments (FAL-519, from FAL-449 and FAL-450) and highlights (FAL-547): a review layer
+//! kept apart from the student's document and its evidence. A comment is anchored in the **final** recorded document
 //! by block id and the commented text, so it can be found again in any replayed state where that
 //! text exists, and it can point back to the replay moment it was made at or promoted from.
 //!
@@ -28,11 +28,15 @@ pub struct Anchor {
     pub quote: String,
 }
 
-/// A teacher's comment.
+/// A teacher's comment, or highlight.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TeacherComment {
     pub id: u32,
+    /// The comment's text (empty for a highlight).
     pub text: String,
+    /// A highlight in this colour, not a comment: painted over its text on the page, and an
+    /// ordinary Word highlight in the review copy.
+    pub highlight: Option<wordcraft_doc::props::Highlight>,
     /// Where it sits in the final document (`None`: the document has no recorded blocks).
     pub anchor: Option<Anchor>,
     /// The commented text no longer exists in the final document: the comment sits at the

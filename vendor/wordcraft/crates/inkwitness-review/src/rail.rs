@@ -189,10 +189,10 @@ fn flag_list(ui: &mut Ui, review: &Review, l: &Loaded, moments: &[u64], t: &Toke
     }
 }
 
-/// The teacher's comments, and the review copy.
+/// The teacher's comments and highlights, and the review copy.
 fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accents, act: &mut Option<RailAction>) {
     ui.label(
-        RichText::new("Kept apart from the student's file. They show on the page, and go into the review copy as Word comments.")
+        RichText::new("Kept apart from the student's file. They show on the page, and go into the review copy as Word comments and highlights.")
             .font(regular(11.5))
             .color(t.text_dim),
     );
@@ -203,7 +203,7 @@ fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accent
             .min_size(vec2(0.0, 30.0)),
     );
     focus_ring(ui, &export, a);
-    if export.on_hover_text("A copy of the final document with your comments as Word comments. The student's file is unchanged.").clicked() {
+    if export.on_hover_text("A copy of the final document with your comments and highlights. The student's file is unchanged.").clicked() {
         *act = Some(RailAction::Export);
     }
     if let Some(n) = &review.notice {
@@ -214,7 +214,7 @@ fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accent
             ui,
             t,
             a,
-            "No comments yet. Select text on the page and press + Add comment below the page, or press Promote to comment on a flag.".into(),
+            "No comments or highlights yet. Select text on the page, then press Highlight or New comment at the top. Or press Promote to comment on a flag.".into(),
         );
     }
     let tc = Kind::TeacherComment.tint(a);
@@ -230,10 +230,17 @@ fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accent
         let shown = frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
-            ui.horizontal_wrapped(|ui| {
-                card::chip(ui, "comment", "Teacher comment", tc);
-                if let Some((_, k)) = c.from_flag {
-                    card::chip(ui, k.icon(), &format!("From: {}", k.name()), flag_tint(k, a));
+            ui.horizontal_wrapped(|ui| match c.highlight {
+                Some(h) => {
+                    card::chip(ui, "highlight", &format!("Highlight · {}", crate::toolbar::colour_name(h)), tc);
+                    let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+                    ui.painter().rect_filled(r, CornerRadius::same(3), crate::toolbar::page_colour(h));
+                }
+                None => {
+                    card::chip(ui, "comment", "Teacher comment", tc);
+                    if let Some((_, k)) = c.from_flag {
+                        card::chip(ui, k.icon(), &format!("From: {}", k.name()), flag_tint(k, a));
+                    }
                 }
             });
             if let Some(q) = c.anchor.as_ref().map(|x| x.quote.as_str()).filter(|q| !q.trim().is_empty()) {
@@ -243,7 +250,9 @@ fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accent
                 let why = "The commented text was removed later: the comment sits at the nearest paragraph that remains.";
                 ui.add(egui::Label::new(RichText::new(why).font(regular(11.5)).color(t.text_dim)).wrap());
             }
-            ui.add(egui::Label::new(RichText::new(&c.text).font(regular(13.0)).color(t.text)).wrap());
+            if c.highlight.is_none() {
+                ui.add(egui::Label::new(RichText::new(&c.text).font(regular(13.0)).color(t.text)).wrap());
+            }
             if let Some((s, e)) = c.seq.and_then(|s| l.replay.event(s).map(|e| (s, e))) {
                 let el = e.get("elapsedMonotonicMs").and_then(Value::as_u64).map(elapsed).unwrap_or_default();
                 ui.label(RichText::new(format!("Event {s} · {el}")).font(regular(11.5)).color(t.text_dim));
@@ -257,9 +266,14 @@ fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accent
                         *act = Some(what);
                     }
                 };
-                button(ui, "Show", "Go to the moment this comment is about", RailAction::Show(c.id));
-                button(ui, "Edit", "Change the comment's text", RailAction::Edit(c.id));
-                button(ui, "Remove", "Remove this comment", RailAction::Delete(c.id));
+                if c.highlight.is_some() {
+                    button(ui, "Show", "Go to the moment this highlight was made at", RailAction::Show(c.id));
+                    button(ui, "Remove", "Remove this highlight", RailAction::Delete(c.id));
+                } else {
+                    button(ui, "Show", "Go to the moment this comment is about", RailAction::Show(c.id));
+                    button(ui, "Edit", "Change the comment's text", RailAction::Edit(c.id));
+                    button(ui, "Remove", "Remove this comment", RailAction::Delete(c.id));
+                }
             });
         });
         let r = shown.response.rect;

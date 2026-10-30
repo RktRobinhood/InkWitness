@@ -1,5 +1,7 @@
 //! Teacher comments as WordCraft comments (FAL-519): drawn on the page as comment balloons, and
-//! written into a separate review copy as Word comments. The student's file is never written.
+//! written into a separate review copy as Word comments. Teacher highlights (FAL-547) are only
+//! painted on the page ([`crate::review`]); the review copy has them as Word highlights. The
+//! student's file is never written.
 //!
 //! The comments are added to a copy of the shown document only ([`decorate`]). Each one puts two
 //! objects into the text (its start and end), so offsets on the page and in the replayed state
@@ -20,14 +22,14 @@ pub const AUTHOR: &str = "Teacher";
 /// The comment ids [`decorate`] added to a document.
 pub type Added = BTreeSet<u32>;
 
-/// Add `notes` that can be found in `st` (the state `doc` is a copy of) to `doc` as comments.
-/// Returns the ids they were given.
+/// Add the comments of `notes` (not the highlights) that can be found in `st` (the state `doc` is
+/// a copy of) to `doc`. Returns the ids they were given.
 pub fn decorate(doc: &mut Document, st: &State, notes: &[TeacherComment]) -> Added {
     let mut added = Added::new();
     // Every start and end, inserted from the last position back so earlier offsets hold. At one
     // position an end goes in before a start, so a point comment's start comes first in the text.
     let mut marks: Vec<(Pos, bool, u32)> = Vec::new();
-    for n in notes {
+    for n in notes.iter().filter(|n| n.highlight.is_none()) {
         let Some((a, b)) = n.anchor.as_ref().and_then(|x| comments::locate(st, x)) else { continue };
         let Some(id) = wordcraft_doc::free_id(doc.comments.keys().next_back().copied(), doc.comments.keys().copied(), 0) else { break };
         let blocks = n.text.lines().take(200).map(|l| para_block(wordcraft_doc::Paragraph::with_text(l, Default::default()))).collect();
@@ -96,11 +98,22 @@ pub fn from_shown(shown: &Document, added: &Added, p: &Pos) -> Pos {
     Pos { off: p.off.saturating_sub(removed), ..p.clone() }
 }
 
-/// The review copy: the last recorded document with the teacher's comments as Word comments,
-/// named "<file> (reviewed).docx". It carries no edit history.
+/// Highlight the text of `notes`' highlights that can be found in `st` (the state `doc` is a copy
+/// of) in `doc`, as Word highlights. The text doesn't change, so positions in `st` still hold.
+pub fn highlight(doc: &mut Document, st: &State, notes: &[TeacherComment]) {
+    for n in notes {
+        let (Some(h), Some((a, b))) = (n.highlight, n.anchor.as_ref().and_then(|x| comments::locate(st, x))) else { continue };
+        // A range the document can't format is left as it is.
+        let _ = doc.format_range(&a, &b, &|c| c.highlight = Some(h));
+    }
+}
+
+/// The review copy: the last recorded document with the teacher's comments as Word comments and
+/// highlights as Word highlights, named "<file> (reviewed).docx". It carries no edit history.
 pub fn review_copy(l: &Loaded, notes: &[TeacherComment]) -> Result<(String, Vec<u8>), String> {
     let mut doc = l.last.doc.clone();
     l.with_pictures(&mut doc);
+    highlight(&mut doc, &l.last, notes);
     decorate(&mut doc, &l.last, notes);
     let stem = std::path::Path::new(&l.name).file_stem().and_then(|s| s.to_str()).unwrap_or("submission");
     let name = format!("{stem} (reviewed).docx");

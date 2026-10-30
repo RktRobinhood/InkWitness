@@ -1,4 +1,5 @@
-//! The browser's side: the recorder's clock and random ids, and the review page's status region.
+//! The browser's side: the recorder's clock and random ids, the review page's status region, and
+//! the review page's remembered choices (`localStorage`).
 
 /// The browser's clock (`Date`, `performance.now()`) and random ids (`crypto.getRandomValues`).
 pub struct WebEnv {
@@ -88,4 +89,17 @@ pub fn publish(review: &crate::review::Review, line: &str) {
     let _ = el.set_attribute("data-highlight", &review.highlighted_text().unwrap_or_default());
     let consistency = review.loaded.as_ref().map_or(String::new(), |l| format!("{:?}", l.consistency));
     let _ = el.set_attribute("data-consistency", &consistency);
+}
+
+/// A choice the review page remembered in this browser (`localStorage`), if any.
+pub fn stored(key: &str) -> Option<String> {
+    web_sys::window()?.local_storage().ok()??.get_item(key).ok()?
+}
+
+/// Remember a choice in this browser. A browser that keeps nothing (private mode, storage off)
+/// just forgets it.
+pub fn store(key: &str, value: &str) {
+    if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+        let _ = s.set_item(key, value);
+    }
 }

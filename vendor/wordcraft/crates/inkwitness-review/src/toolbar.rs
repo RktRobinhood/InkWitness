@@ -1,11 +1,16 @@
 //! The review page's chrome (FAL-448): a viewer's toolbar in place of WordCraft's ribbon. The page
 //! shows no control that edits the document. What a reviewer keeps is listed in [`SHOWN`]: the
-//! comments (show or hide, previous, next), the view (zoom, page view, page colour), Find, and
-//! opening another file. WordCraft's title bar, ribbon, status bar and File page are not drawn
+//! teacher's own marks (Highlight, New comment), the file's comments (show or hide, previous,
+//! next), the view (zoom, page view, page colour), Find, opening another file, and the Full ribbon
+//! switch. WordCraft's title bar, ribbon, status bar and File page are not drawn
 //! ([`WordApp::viewer_chrome`]); [`HIDDEN`] lists the editing controls that must not appear.
+//!
+//! Full ribbon (FAL-547) brings back WordCraft's ribbon under the toolbar, without its File tab or
+//! its Share and Editing buttons ([`WordApp::viewer_ribbon`]). The browser remembers the choice.
 
-use egui::{Align, CornerRadius, Layout, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align, Color32, CornerRadius, Layout, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
+use wordcraft_doc::props::Highlight;
 use wordcraft_ui_egui::theme::critic::{self, Accents};
 use wordcraft_ui_egui::theme::{Palette, medium, regular, semibold};
 use wordcraft_ui_egui::{WordApp, icons};
@@ -14,6 +19,9 @@ use crate::card::ring;
 
 /// The accessible names of the toolbar's controls (what a screen reader and the test find).
 pub const SHOWN: &[&str] = &[
+    "Highlight",
+    "Highlight colour",
+    "New comment",
     "Show comments",
     "Previous comment",
     "Next comment",
@@ -25,6 +33,7 @@ pub const SHOWN: &[&str] = &[
     "Dark page",
     "Find",
     "Open DOCX…",
+    "Full ribbon",
 ];
 
 /// Write controls that must never show on the review page (asserted by the tests).
@@ -57,21 +66,71 @@ pub const HIDDEN: &[&str] = &[
     "Delete",
 ];
 
-/// Make `app` a viewer with the Critic palette, fitting the page to the window's width. Call it
-/// after the stored preferences are applied (they carry a zoom).
+/// Make `app` a viewer with the Critic palette, fitting the page to the window's width, with the
+/// ribbon if the reviewer last asked for it. Call it after the stored preferences are applied
+/// (they carry a zoom).
 pub fn setup(app: &mut WordApp) {
     app.viewer_chrome = true;
+    app.viewer_ribbon = stored_ribbon();
     app.palette = Palette::Critic;
     app.ui.backstage = false;
     let _ = app.run("view.zoom", json!({"value": "pageWidth"}));
 }
 
+/// The browser's key for the Full ribbon switch.
+pub const RIBBON_KEY: &str = "inkwitness.review.fullRibbon";
+
+/// Whether the reviewer last left Full ribbon on (in this browser).
+fn stored_ribbon() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::web::stored(RIBBON_KEY).as_deref() == Some("on")
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+/// Turn Full ribbon on or off, and remember it in this browser.
+pub fn set_ribbon(app: &mut WordApp, on: bool) {
+    app.viewer_ribbon = on;
+    #[cfg(target_arch = "wasm32")]
+    crate::web::store(RIBBON_KEY, if on { "on" } else { "off" });
+}
+
+/// The highlight colours a teacher picks from, with their names: Word's own highlighter colours.
+pub const COLOURS: [(Highlight, &str); 4] =
+    [(Highlight::Yellow, "Yellow"), (Highlight::BrightGreen, "Green"), (Highlight::Turquoise, "Blue"), (Highlight::Pink, "Pink")];
+
+/// A highlight colour's name ([`COLOURS`]).
+pub fn colour_name(h: Highlight) -> &'static str {
+    COLOURS.iter().find(|(c, _)| *c == h).map_or("Yellow", |(_, n)| n)
+}
+
+/// A highlight colour as painted over the page: Word's colour, see-through so the text shows.
+pub fn page_colour(h: Highlight) -> Color32 {
+    let c = h.rgb().unwrap_or(wordcraft_doc::Rgb(255, 255, 0));
+    Color32::from_rgba_unmultiplied(c.0, c.1, c.2, 110)
+}
+
+/// What the reviewer asked the toolbar for, that the review page does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolbarAction {
+    /// Highlight the text selected on the page in this colour.
+    Highlight(Highlight),
+    /// Open a comment draft on the text selected on the page.
+    Comment,
+}
+
 /// The toolbar's height.
 pub const HEIGHT: f32 = 46.0;
 
-/// Draw the toolbar across the top of the window.
-pub fn show(ui: &mut Ui, app: &mut WordApp, has_file: bool) {
+/// Draw the toolbar across the top of the window. `colour` is the Highlight button's colour (a
+/// pick from its menu changes it).
+pub fn show(ui: &mut Ui, app: &mut WordApp, has_file: bool, colour: &mut Highlight) -> Option<ToolbarAction> {
     let a = Accents::get(ui.ctx());
+    let mut act = None;
     egui::Panel::top("inkwitness_viewer_bar")
         .exact_size(HEIGHT)
         .frame(egui::Frame::NONE.fill(a.header).inner_margin(egui::Margin { left: 14, right: 12, top: 0, bottom: 0 }))
@@ -88,16 +147,59 @@ pub fn show(ui: &mut Ui, app: &mut WordApp, has_file: bool) {
                     .on_hover_text("Viewing only: nothing on this page changes the student's file.");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
+                    let ribbon = app.viewer_ribbon;
+                    if switch(ui, &a, "Full ribbon", ribbon, "Show WordCraft's whole ribbon under this bar. This browser remembers the choice.")
+                        .clicked()
+                    {
+                        set_ribbon(app, !ribbon);
+                    }
+                    ui.add_space(8.0);
                     if open_button(ui, &a).clicked()
                         && let Some(open) = &app.services.open_async
                     {
                         open("document");
                     }
                     ui.add_space(10.0);
-                    ui.add_enabled_ui(has_file, |ui| tools(ui, app, &a));
+                    ui.add_enabled_ui(has_file, |ui| {
+                        tools(ui, app, &a);
+                        divider(ui, &a);
+                        act = marks(ui, &a, colour);
+                    });
                 });
             });
         });
+    act
+}
+
+/// The teacher's own marks, right to left: New comment, then Highlight with its colour menu.
+fn marks(ui: &mut Ui, a: &Accents, colour: &mut Highlight) -> Option<ToolbarAction> {
+    let mut act = None;
+    if tool(ui, a, "comment", "New comment", true, false, "Comment on the text selected on the page").clicked() {
+        act = Some(ToolbarAction::Comment);
+    }
+    ui.add_space(4.0);
+    let more = menu_arrow(ui, a, "Highlight colour", "Choose the highlight colour");
+    egui::Popup::menu(&more).show(|ui| {
+        for (h, name) in COLOURS {
+            let row = ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+                ui.painter().rect_filled(r, CornerRadius::same(3), h.rgb().map_or(Color32::YELLOW, |c| Color32::from_rgb(c.0, c.1, c.2)));
+                ui.painter().rect_stroke(r, CornerRadius::same(3), Stroke::new(1.0, Color32::from_gray(120)), egui::StrokeKind::Inside);
+                ui.selectable_label(*colour == h, name)
+            });
+            if row.inner.clicked() {
+                *colour = h;
+                act = Some(ToolbarAction::Highlight(h));
+                ui.close();
+            }
+        }
+    });
+    let swatch = colour.rgb().map_or(Color32::YELLOW, |c| Color32::from_rgb(c.0, c.1, c.2));
+    let tip = format!("Highlight the text selected on the page in {}", colour_name(*colour).to_lowercase());
+    if tool_in(ui, a, "highlight", "Highlight", true, false, &tip, swatch).clicked() {
+        act = Some(ToolbarAction::Highlight(*colour));
+    }
+    act
 }
 
 /// The viewing tools, right to left: Find, View, Comments.
@@ -149,6 +251,12 @@ fn tools(ui: &mut Ui, app: &mut WordApp, a: &Accents) {
 
 /// A toolbar button on the navy bar: an icon, its words when `words`, a lighter fill while `on`.
 fn tool(ui: &mut Ui, a: &Accents, icon: &str, label: &str, words: bool, on: bool, tip: &str) -> egui::Response {
+    tool_in(ui, a, icon, label, words, on, tip, critic::REVIEW_GOLD)
+}
+
+/// [`tool`] with the icon's accent colour (the Highlight button's colour bar).
+#[allow(clippy::too_many_arguments)]
+fn tool_in(ui: &mut Ui, a: &Accents, icon: &str, label: &str, words: bool, on: bool, tip: &str, accent: Color32) -> egui::Response {
     let font = medium(12.5);
     let shown = if label == "Show comments" { "Comments" } else { label };
     let galley = words.then(|| ui.painter().layout_no_wrap(shown.to_string(), font, a.on_header));
@@ -162,12 +270,48 @@ fn tool(ui: &mut Ui, a: &Accents, icon: &str, label: &str, words: bool, on: bool
     } else if resp.hovered() && enabled {
         p.rect_filled(r, CornerRadius::same(6), a.header.lerp_to_gamma(a.on_header, 0.12));
     }
-    icons::paint(p, Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(16.0, 16.0)), icon, fg, critic::REVIEW_GOLD);
+    icons::paint(p, Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(16.0, 16.0)), icon, fg, accent);
     if let Some(g) = galley {
         p.galley(pos2(r.min.x + 28.0, r.center().y - g.size().y / 2.0), g, fg);
     }
     let label = label.to_string();
     resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, &label));
+    ring(ui, &resp, a.header_focus);
+    resp.on_hover_text(tip)
+}
+
+/// The narrow ▾ beside a split button, that opens its menu.
+fn menu_arrow(ui: &mut Ui, a: &Accents, label: &str, tip: &str) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(16.0, 32.0), Sense::click());
+    let enabled = ui.is_enabled();
+    if resp.hovered() && enabled {
+        ui.painter().rect_filled(r, CornerRadius::same(6), a.header.lerp_to_gamma(a.on_header, 0.12));
+    }
+    let fg = if enabled { a.on_header } else { a.on_header_dim };
+    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(10.0, 10.0)), "chevronDown", fg, fg);
+    let label = label.to_string();
+    resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
+    ring(ui, &resp, a.header_focus);
+    resp.on_hover_text(tip)
+}
+
+/// An on/off switch on the navy bar: its words, then a small track with the knob at the right
+/// while `on`.
+fn switch(ui: &mut Ui, a: &Accents, label: &str, on: bool, tip: &str) -> egui::Response {
+    let g = ui.painter().layout_no_wrap(label.to_string(), medium(12.5), a.on_header);
+    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 48.0, 32.0), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(r, CornerRadius::same(6), a.header.lerp_to_gamma(a.on_header, 0.12));
+    }
+    ui.painter().galley(pos2(r.min.x + 8.0, r.center().y - g.size().y / 2.0), g, a.on_header);
+    let track = Rect::from_center_size(pos2(r.max.x - 20.0, r.center().y), vec2(26.0, 14.0));
+    let t = wordcraft_ui_egui::theme::Tokens::get(ui.ctx());
+    let fill = if on { t.accent } else { a.header.lerp_to_gamma(a.on_header, 0.3) };
+    ui.painter().rect_filled(track, CornerRadius::same(7), fill);
+    let knob = if on { track.max.x - 7.0 } else { track.min.x + 7.0 };
+    ui.painter().circle_filled(pos2(knob, track.center().y), 5.0, Color32::WHITE);
+    let label = label.to_string();
+    resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, &label));
     ring(ui, &resp, a.header_focus);
     resp.on_hover_text(tip)
 }

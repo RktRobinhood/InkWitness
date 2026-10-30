@@ -54,6 +54,9 @@ pub struct CanvasState {
     pub keep_view: bool,
     /// InkWitness review: the range of the event being reviewed, highlighted on the page.
     pub review_mark: Option<(wordcraft_engine::doc::Pos, wordcraft_engine::doc::Pos)>,
+    /// InkWitness review: the teacher's highlights, painted over their ranges in their colours.
+    /// They are drawn on the page only; the document isn't changed (FAL-547).
+    pub review_highlights: Vec<(wordcraft_engine::doc::Pos, wordcraft_engine::doc::Pos, egui::Color32)>,
     /// A heading navigation click aligns its page against the navigation pane, not just visible.
     pub(crate) nav_to_caret: bool,
     /// Touchpad travel not yet converted to an entire reading-column turn.
@@ -255,6 +258,7 @@ impl Default for CanvasState {
             scroll_to_caret: true,
             keep_view: false,
             review_mark: None,
+            review_highlights: Vec::new(),
             nav_to_caret: false,
             read_wheel_accum: 0.0,
             read_viewport: Settle::default(),
@@ -1589,6 +1593,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         Rect::from_min_size(pos2(pr.min.x + r.x * geo.scale, pr.min.y + r.y * geo.scale), vec2(r.w * geo.scale, r.h * geo.scale));
                     painter.rect_filled(sr, 0.0, t.accent.gamma_multiply(0.16));
                     painter.hline(sr.x_range(), sr.max.y - 0.5, egui::Stroke::new(1.5, t.accent));
+                }
+            }
+        }
+        // InkWitness review: the teacher's highlights, under the event's mark.
+        for (a, b, fill) in app.canvas.review_highlights.clone() {
+            let (a, b) = (app.session.doc.clamp(&a), app.session.doc.clamp(&b));
+            for (pi, r) in layout.selection_rects(&app.session.doc, &a, &b, app.session.page_hint) {
+                if let Some(pr) = rects.get(pi) {
+                    let sr =
+                        Rect::from_min_size(pos2(pr.min.x + r.x * geo.scale, pr.min.y + r.y * geo.scale), vec2(r.w * geo.scale, r.h * geo.scale));
+                    painter.rect_filled(sr, 0.0, fill);
                 }
             }
         }

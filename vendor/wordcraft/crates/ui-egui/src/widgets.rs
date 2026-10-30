@@ -181,6 +181,10 @@ pub fn enabled(app: &WordApp, id: &str) -> bool {
     if app.session.read_only() && app.session.refuses_read_only(id) {
         return false;
     }
+    // The review page's ribbon (FAL-547): what the viewer refuses shows greyed out too.
+    if app.viewer_chrome && !crate::viewer_allows(id, &Value::Null, app.viewer_ribbon) {
+        return false;
+    }
     match app.session.registry.get(id) {
         Some(_) => app.session.why_disabled(id).is_none(),
         // Zotero: one command at a time, and only in the desktop app.

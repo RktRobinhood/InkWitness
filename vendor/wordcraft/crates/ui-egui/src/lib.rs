@@ -642,6 +642,10 @@ pub struct WordApp {
     /// panes (without their editing buttons), and no `ui.*` command that opens editing UI. The
     /// front end draws its own viewing controls. Off for every other front end.
     pub viewer_chrome: bool,
+    /// InkWitness Review (FAL-547): with [`WordApp::viewer_chrome`], WordCraft's ribbon under the
+    /// front end's toolbar, without its File tab or its Share and Editing buttons. Its commands
+    /// still go through the viewer's checks ([`viewer_allows`]) and the session's.
+    pub viewer_ribbon: bool,
     /// The interface colours ([`theme::Palette`]); light or dark still follows `ui.theme`. Set by
     /// the front end per page, never saved.
     pub palette: theme::Palette,
@@ -768,6 +772,7 @@ impl WordApp {
             quit_requested: false,
             autosave: true,
             viewer_chrome: false,
+            viewer_ribbon: false,
             palette: theme::Palette::WordCraft,
             word_count: (0, 0),
             last_autosave: 0.0,
@@ -1022,7 +1027,7 @@ impl WordApp {
         if self.session.read_only() && self.session.refuses_read_only(id) {
             return Err(format!("{id}: the document is open for review only"));
         }
-        if self.viewer_chrome && !viewer_allows(id, &params) {
+        if self.viewer_chrome && !viewer_allows(id, &params, self.viewer_ribbon) {
             return Err(format!("{id}: not available while reviewing"));
         }
         // A pending Change Picture only survives until the next action (#147).
@@ -2548,7 +2553,11 @@ impl WordApp {
             // Focus and Full Screen (#1678) take the whole screen, with only their slim bar.
             self.focus_ribbon &= screen == chrome::Screen::Focus;
             if self.viewer_chrome {
-                // The front end drew its own viewing controls; the page and its panes remain.
+                // The front end drew its own viewing controls; the page and its panes remain, and
+                // the ribbon when the reviewer asked for it.
+                if self.viewer_ribbon {
+                    ribbon::show(self, ui);
+                }
                 panes::show(self, ui);
             } else if screen != chrome::Screen::Normal {
                 chrome::screen_bar(self, ui, screen);
@@ -2792,11 +2801,13 @@ impl WordApp {
 /// Whether a viewer ([`WordApp::viewer_chrome`]) runs command `id`: the engine's own commands
 /// (a view-only session refuses the ones that edit), but of the front end's `ui.*` commands only
 /// the Word Count and Zoom dialogs and opening a file, and no Find and Replace dialog (it has a
-/// Replace tab). Keyboard shortcuts reach the rest; they would open editing UI (FAL-448).
-pub fn viewer_allows(id: &str, params: &Value) -> bool {
+/// Replace tab). Keyboard shortcuts reach the rest; they would open editing UI (FAL-448). With
+/// the ribbon shown (`ribbon`, [`WordApp::viewer_ribbon`]), its tabs switch too (FAL-547).
+pub fn viewer_allows(id: &str, params: &Value, ribbon: bool) -> bool {
     match id {
         "ui.dialog" => matches!(params.get("name").and_then(Value::as_str), Some("wordCount" | "zoom")),
         "ui.closeDialog" | "ui.openFileDialog" => true,
+        "ui.tab" => ribbon && params.get("tab").and_then(Value::as_str) != Some("File"),
         "edit.findReplace" | "edit.advancedFind" => false,
         _ => !id.starts_with("ui."),
     }
