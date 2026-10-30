@@ -99,6 +99,8 @@ pub fn start() {
                         app.start_screen();
                     }
                     let review = if review {
+                        // A viewer with the Critic palette: no editing control on the page (FAL-448).
+                        wordcraft_inkwitness_review::toolbar::setup(&mut app);
                         Some(wordcraft_inkwitness_review::review::Review::default())
                     } else {
                         wordcraft_inkwitness_review::writer::attach(
@@ -198,7 +200,11 @@ impl eframe::App for WebShell {
             wordcraft_inkwitness_review::web::publish(review, &line);
         }
         // Store changed preferences straight away: a reload or closed tab runs no exit code (#2132).
-        if let Some(json) = self.prefs.changed(&self.app) {
+        // The review page reads the writer's preferences but never stores its own (FAL-448): what
+        // a reviewer looks at mustn't change the writer.
+        if self.review.is_none()
+            && let Some(json) = self.prefs.changed(&self.app)
+        {
             match local_storage() {
                 Some(store) => {
                     if let Err(e) = store.set_item(crate::prefs::KEY, &json) {
@@ -216,7 +222,7 @@ impl eframe::App for WebShell {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if let Some(review) = &mut self.review {
-            review.panel(ui, &mut self.app);
+            review.chrome(ui, &mut self.app);
             // A seek this frame changes the status line.
             if let Some(line) = review.status_changed() {
                 wordcraft_inkwitness_review::web::publish(review, &line);

@@ -54,6 +54,17 @@ Keep this list current. Every change to `vendor/wordcraft/` must be listed here 
 | `crates/ui-egui/src/lib.rs` | `Services::prepare_save` (`PrepareSaveFn`): the document the web Save writes; `WordApp::execute` refuses a view-only session's save/edit commands before the web save path | Same |
 | `apps/wordcraft-web/src/web.rs`, `Cargo.toml` | Route from the URL path (`/review/`) or `?mode=review` (parsed, not searched); Review: view-only start page, no unload guard, files from the picker and drops go to the review, status region; Write: recorder attached, Save embeds the history | Same |
 | `Cargo.lock` | `wordcraft-inkwitness-review` entries | New crate |
+| `crates/ui-egui/src/theme.rs` | `Palette` (`WordCraft`, `Critic`), `Tokens::critic_light`/`critic_dark`/`of`, `theme::critic` (brand colours, `Accents`, `Tint`), `apply_palette` (`apply` now calls it with `WordCraft`); `Tokens::get` returns the installed palette's tokens; the contrast tests run over all four palettes and a new `critic_palette_meets_wcag_aa` | FAL-448: the review page's Critic interface theme (`docs/BRANDING.md`). WordCraft's own colours are unchanged |
+| `crates/ui-egui/src/lib.rs` | `WordApp::viewer_chrome` and `WordApp::palette` (both per page, never saved); `applied_theme` keyed by palette; `fonts_ready`; with `viewer_chrome` the frame draws only the panes and the page (no title bar, ribbon, status bar, File page or keytips), and `execute` refuses the `ui.*` commands that open editing UI (`viewer_allows`) | FAL-448: viewer-only `/review/`. Off by default, so `/write/` and the desktop app are unchanged |
+| `crates/ui-egui/src/panes.rs` | With `viewer_chrome`, only the Navigation and Comments panes, and the Comments pane without New Comment, Reply, Resolve or Delete | Same |
+| `crates/ui-egui/src/canvas.rs` | With `viewer_chrome`, no context menu and no Reply/Resolve/Delete on the active comment balloon | Same |
+| `crates/ui-egui/src/canvas.rs` | With `viewer_chrome`, no rulers (their indent, margin and tab-stop markers and the tab-stop selector edit the page), whatever `view.ruler` says | Same |
+| `crates/ui-egui/src/mini_toolbar.rs` | No mini toolbar with `viewer_chrome` | Same |
+| `crates/ui-egui/src/widgets.rs` | `enabled` is false for a command a view-only session refuses | Same: refused controls show greyed out |
+| `crates/inkwitness/src/replay.rs` | `State::unrecorded` | FAL-448: a file with no history is shown as saved ("History missing") instead of refused |
+| `crates/inkwitness-review/` | New `toolbar.rs` (the viewer's toolbar, `SHOWN`/`HIDDEN`, `setup`), `rail.rs` (the "Observations & notes" rail) and `card.rs` (the reusable rail card); `review.rs` draws them (`Review::chrome` replaces `panel`); tests for the hidden controls, viewer commands and the paste card; dependency `chrono`, dev-dependency `egui_kittest` (both already in the workspace) | FAL-448 |
+| `apps/wordcraft-web/src/web.rs` | Review: `toolbar::setup` (viewer chrome, Critic palette, page width), `Review::chrome`, and no preference writes from the review page | FAL-448 |
+| `Cargo.lock` | `wordcraft-inkwitness-review` dependency list | Same |
 
 Not yet rebranded (tracked as a follow-up): the Help-tab keytip and the `ui.discord` command, Options and default-app strings, `web.rs` start-up error text, the sample document link, and generator metadata in `crates/docx` (`Application`), `crates/pdf` and `crates/formats/src/latex.rs`.
 

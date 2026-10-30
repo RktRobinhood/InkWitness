@@ -2,6 +2,69 @@
 
 **Design principle:** A teacher watches *the original WordCraft-rendered document develop*, not a video of a separate text pane. Replay is read-only. The document remains the focus, diagnostic comments occupy a right-hand rail, and playback controls form a **fixed bottom dock like a video player**.
 
+## Board direction (FAL-446, 2026-10-28)
+
+The board set four rules for `/review/`. Status is as of FAL-448 (T1); T2 and T3 are **NOT BUILT** yet.
+
+### Viewer-only chrome (built in FAL-448)
+
+- `/review/` shows **no control that edits the document**. WordCraft's title bar, ribbon tabs, quick-access bar, status bar, File page, keytips, context menu and mini toolbar are not drawn there. Nor are AutoSave, Share, the Editing-mode switch, Dictate, Editor, or any save path.
+- What the page keeps, in its own navy toolbar: **Comments** (show or hide, previous, next), **View** (zoom out, zoom level, zoom in, one page, page width, dark page), **Find** (the Navigation pane), and **Open DOCX…**. The Comments pane lists the file's comments without New Comment, Reply, Resolve or Delete.
+- Two independent locks:
+  - the session is view-only (`Session::set_read_only`), so the engine refuses every editing command;
+  - the front end is a viewer (`WordApp::viewer_chrome`), so keyboard shortcuts can't open editing UI. Of WordCraft's `ui.*` commands, only the Zoom and Word Count dialogs and Open run.
+- `crates/inkwitness-review/src/toolbar.rs` lists the shown controls (`SHOWN`) and the hidden ones (`HIDDEN`). A test walks the page's accessibility tree and fails if any control other than a viewing control appears.
+- The review page reads the writer's stored preferences but never stores its own.
+- `/write/` is unchanged.
+
+### The rail's three kinds of item
+
+| Kind | Where it comes from | Who sees it | In the copy returned to the student? | Status |
+|---|---|---|---|---|
+| Word comment | Already in the DOCX | Everyone who opens the file | Already there, unchanged | Shown in the Comments pane (FAL-448) |
+| Observation | InkWitness evidence: paste, imported document (later: large insertion, recovery gap and the rest of the taxonomy) | **Teacher only** | Never, unless promoted | Paste and import cards (FAL-448) |
+| Teacher comment | Written by the teacher, or promoted from an observation or event | Teacher, and the student once the review copy is returned | Yes, as a standard Word comment | **NOT BUILT** (T2) |
+
+Each kind has its own icon, words and colour: Review Gold for observations, Witness Blue for teacher comments and actions, Slate for Word comments and ordinary events. Colour is never the only sign. One card component (`crates/inkwitness-review/src/card.rs`) draws every kind, and later the timeline's hover cards. It has:
+
+- a type chip with an icon and words;
+- the recorded time and the time elapsed in the session;
+- the size in words and characters;
+- the excerpt;
+- a Go to action;
+- `gestureId`, the anchor check, the clipboard formats and the source, folded under **Details**.
+
+The rail ("Observations & notes") has three parts:
+
+- a header with the InkWitness Review mark, the file name, the student and the assessment (or "not entered"), and a history badge (Consistent, External changes, Corrupt or Missing, each with an icon and words), followed by the quiet line "Unsigned local history: not proof of authorship.";
+- the event navigation, which FAL-477 moves to the bottom dock;
+- the card for the moment shown, then one card for each observation.
+
+### Promotion (NOT BUILT, T3)
+
+- Every observation card and timeline event gets a **Promote to comment** action. The action opens an editable draft, pre-filled from the evidence with:
+  - what happened, when, and how much;
+  - the excerpt;
+  - one neutral interview question.
+
+  The draft never mentions AI or misconduct and leaves out internal values (`gestureId`, hashes) unless the teacher adds them.
+- Nothing reaches the student until the teacher saves the draft. A promoted observation and its comment link to each other.
+- Teacher comments live in a review layer, never in the student's document model or evidence. Export writes `<original name> (reviewed).docx`. The original file is never written, and nothing is saved automatically.
+
+### The Critic theme (built in FAL-448)
+
+- The theme is an interface palette (`theme::Palette::Critic` in `crates/ui-egui/src/theme.rs`), set per page. It is not a saved preference. Light or dark still follows the Appearance setting.
+- `/review/` uses Critic. `/write/` keeps WordCraft's own palette.
+- The colours come from `docs/BRANDING.md`:
+  - Ink Navy `#13213A` for the header and text;
+  - Paper Blue `#EAF3FF` for light surfaces;
+  - Review Gold `#EDBA69` for observations;
+  - Witness Blue `#3685F5` for teacher actions;
+  - Slate `#60728B` for marks.
+- Where a brand colour fails WCAG AA as text, a deeper shade carries the text and the brand colour stays as the edge or stripe. White on `#3685F5` is 3.6:1, so the action fill is `#2563D8`. Slate is 4.4:1 on Paper Blue, so muted text is `#4F6079`.
+- The test `theme::tests::critic_palette_meets_wcag_aa` holds text, muted text, links and chip text to 4.5:1, and the focus ring to 3:1, on every Critic surface.
+- The page keeps the document as the hero. The page is centred on a calm blue-grey canvas, the rail sits at the right, and nothing covers the bottom of the page.
+
 ## Desktop layout
 
 ```text

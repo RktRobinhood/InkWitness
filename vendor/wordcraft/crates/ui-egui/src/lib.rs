@@ -606,8 +606,8 @@ pub struct WordApp {
     /// The Find query and result count [`WordApp::ensure_find_fonts`] last looked at.
     find_fonts_for: Option<(String, usize, u64)>,
     fonts_frames: u32,
-    /// The effective interface theme last installed in egui ([`theme::apply`]).
-    applied_theme: Option<theme::Appearance>,
+    /// The effective interface theme and palette last installed in egui ([`theme::apply_palette`]).
+    applied_theme: Option<(theme::Appearance, theme::Palette)>,
     /// The display scale (native pixels per point) seen in the last frame, 1.0 before the first;
     /// `ui.interfaceSize` reports the size Auto draws at with it.
     native_scale: f32,
@@ -637,6 +637,14 @@ pub struct WordApp {
     escape_free: bool,
     pub quit_requested: bool,
     pub autosave: bool,
+    /// InkWitness Review (FAL-448): a viewer's chrome. No title bar, ribbon, status bar, File page
+    /// or keytips, no context menu or mini toolbar on the page, only the Navigation and Comments
+    /// panes (without their editing buttons), and no `ui.*` command that opens editing UI. The
+    /// front end draws its own viewing controls. Off for every other front end.
+    pub viewer_chrome: bool,
+    /// The interface colours ([`theme::Palette`]); light or dark still follows `ui.theme`. Set by
+    /// the front end per page, never saved.
+    pub palette: theme::Palette,
     pub word_count: (u64, usize),
     last_autosave: f64,
     /// The tab shown before the Equation tab came up (restored when editing ends).
@@ -759,6 +767,8 @@ impl WordApp {
             escape_free: false,
             quit_requested: false,
             autosave: true,
+            viewer_chrome: false,
+            palette: theme::Palette::WordCraft,
             word_count: (0, 0),
             last_autosave: 0.0,
             equation_prev_tab: None,
@@ -1011,6 +1021,9 @@ impl WordApp {
         // view-only document refuses them here too.
         if self.session.read_only() && self.session.refuses_read_only(id) {
             return Err(format!("{id}: the document is open for review only"));
+        }
+        if self.viewer_chrome && !viewer_allows(id, &params) {
+            return Err(format!("{id}: not available while reviewing"));
         }
         // A pending Change Picture only survives until the next action (#147).
         if !matches!(id, "ui.changePicture" | "picture.change" | "insert.picture") {
@@ -2270,9 +2283,9 @@ impl WordApp {
             },
             other => other,
         };
-        if self.applied_theme != Some(effective) {
-            theme::apply(ctx, effective);
-            self.applied_theme = Some(effective);
+        if self.applied_theme != Some((effective, self.palette)) {
+            theme::apply_palette(ctx, effective, self.palette);
+            self.applied_theme = Some((effective, self.palette));
         }
         // Interface size (#475, #822): egui's zoom factor multiplies the display scale the system
         // reports (native pixels per point). Auto keeps that scale; a chosen size divides it back
@@ -2484,6 +2497,12 @@ impl WordApp {
     }
 
     /// Lay out the window.
+    /// Whether the interface fonts [`WordApp::logic`] installs are in use yet; until then [`WordApp::ui`]
+    /// draws nothing, and nor may a front end's own chrome that uses them (FAL-448).
+    pub fn fonts_ready(&self) -> bool {
+        self.fonts_frames >= 2
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let t0 = now_ms();
         let ctx = ui.ctx().clone();
@@ -2500,10 +2519,17 @@ impl WordApp {
             return;
         }
         let t = theme::Tokens::get(&ctx);
+        // A viewer has no File page and no ribbon for keytips to point at (FAL-448).
+        if self.viewer_chrome {
+            self.ui.backstage = false;
+            self.ui.keytips = keytips::Phase::Off;
+        }
         self.escape_free = self.dialog.is_none() && !self.ui.backstage && self.ui.keytips == keytips::Phase::Off && !egui::Popup::is_any_open(&ctx);
         // Keytips are read before layout so the frame paints the new state; badges paint after
         // the ribbon so they sit on top of it.
-        crate::keytips::logic(self, &ctx);
+        if !self.viewer_chrome {
+            crate::keytips::logic(self, &ctx);
+        }
         // A failed Recent open, or a failed Save As, is news only until File closes (#2938).
         if !self.ui.backstage {
             backstage::forget_open_error(&ctx);
@@ -2521,7 +2547,10 @@ impl WordApp {
             let screen = chrome::Screen::of(&self.session.view);
             // Focus and Full Screen (#1678) take the whole screen, with only their slim bar.
             self.focus_ribbon &= screen == chrome::Screen::Focus;
-            if screen != chrome::Screen::Normal {
+            if self.viewer_chrome {
+                // The front end drew its own viewing controls; the page and its panes remain.
+                panes::show(self, ui);
+            } else if screen != chrome::Screen::Normal {
                 chrome::screen_bar(self, ui, screen);
             } else {
                 chrome::title_bar(self, ui);
@@ -2544,7 +2573,9 @@ impl WordApp {
         colors::show(self, &ctx);
         zotero::show_alert(self, &ctx);
         read_aloud::show(self, &ctx);
-        crate::keytips::show(self, &ctx, ui);
+        if !self.viewer_chrome {
+            crate::keytips::show(self, &ctx, ui);
+        }
         keys::global_shortcuts(self, &ctx);
         self.refocus_after_chrome_click(&ctx);
         if let Some(url) = self.canvas.open_url.take() {
@@ -2755,6 +2786,19 @@ impl WordApp {
             let _ = reply.send(json!({"ok": false, "error": "no frame was presented (window hidden?); use ui.render"}));
             false
         });
+    }
+}
+
+/// Whether a viewer ([`WordApp::viewer_chrome`]) runs command `id`: the engine's own commands
+/// (a view-only session refuses the ones that edit), but of the front end's `ui.*` commands only
+/// the Word Count and Zoom dialogs and opening a file, and no Find and Replace dialog (it has a
+/// Replace tab). Keyboard shortcuts reach the rest; they would open editing UI (FAL-448).
+pub fn viewer_allows(id: &str, params: &Value) -> bool {
+    match id {
+        "ui.dialog" => matches!(params.get("name").and_then(Value::as_str), Some("wordCount" | "zoom")),
+        "ui.closeDialog" | "ui.openFileDialog" => true,
+        "edit.findReplace" | "edit.advancedFind" => false,
+        _ => !id.starts_with("ui."),
     }
 }
 

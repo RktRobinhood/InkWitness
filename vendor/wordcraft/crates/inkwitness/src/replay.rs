@@ -104,6 +104,12 @@ pub struct Resolved {
 }
 
 impl State {
+    /// A document with no recorded history (it has no block ids), shown as it is: what a reviewer
+    /// sees for a file whose history is missing. Nothing replays from it.
+    pub fn unrecorded(doc: Document) -> State {
+        State { seq: 0, doc, ids: BTreeMap::new(), digests: HashMap::new() }
+    }
+
     /// Each story's paragraph ids, in document order.
     pub fn block_ids(&self) -> BTreeMap<String, Vec<String>> {
         self.ids.iter().map(|(s, ids)| (story_key(*s), ids.clone())).collect()
