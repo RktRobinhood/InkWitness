@@ -177,8 +177,11 @@ pub fn of_event(e: &Value) -> Vec<Flag> {
     let flag = |kind: FlagKind, label: String| Flag { seq, kind, label, matched: None };
     let pasted = ty == "paste" || !s("pasteGestureId").is_empty();
     let passage = if ty == "import_document" {
-        out.push(flag(FlagKind::Imported, format!("Text already there · {}", chars(ic))));
-        true
+        // A New, or a file with no text, put nothing there.
+        if ic > 0 {
+            out.push(flag(FlagKind::Imported, format!("Text already there · {}", chars(ic))));
+        }
+        ic > 0
     } else if pasted {
         let large = ic >= LARGE_PASTE_CHARS || iw >= LARGE_PASTE_WORDS;
         out.push(flag(
@@ -204,12 +207,34 @@ pub fn of_event(e: &Value) -> Vec<Flag> {
 /// Every flag in the history a reviewer can seek to, in event order (an event with two flags
 /// gives two, strongest first), and the point where a corrupt history stops.
 pub fn compute(l: &Loaded) -> Vec<Flag> {
-    let mut out: Vec<Flag> =
-        l.replay.events().iter().filter(|e| e.get("seq").and_then(Value::as_u64).is_some_and(|s| s <= l.replayable)).flat_map(of_event).collect();
+    let mut out: Vec<Flag> = l
+        .replay
+        .events()
+        .iter()
+        .filter(|e| e.get("seq").and_then(Value::as_u64).is_some_and(|s| s <= l.replayable))
+        .flat_map(|e| if e.get("type").and_then(Value::as_str) == Some("import_document") { of_event(&opened(l, e)) } else { of_event(e) })
+        .collect();
     if let Consistency::Corrupt(_) = l.consistency {
         out.push(Flag { seq: l.replayable, kind: FlagKind::HistoryStops, label: "History stops replaying".into(), matched: None });
     }
     out
+}
+
+/// An `import_document` event with the text of the document it opened as its `insertedText`:
+/// the event names the new paragraphs but doesn't carry their text, so it is read from the
+/// state the event left.
+fn opened(l: &Loaded, e: &Value) -> Value {
+    let text = e
+        .get("seq")
+        .and_then(Value::as_u64)
+        .and_then(|s| l.replay.state_at(s).ok())
+        .map(|st| st.doc.plain_text(wordcraft_doc::StoryRef::Body).replace('\n', &wordcraft_inkwitness::PARA_MARK.to_string()))
+        .unwrap_or_default();
+    let mut e = e.clone();
+    if let Some(m) = e.as_object_mut() {
+        m.insert("insertedText".into(), Value::String(text));
+    }
+    e
 }
 
 /// The `seq` of each flagged event, once each, in order.
@@ -252,6 +277,8 @@ mod tests {
         assert_eq!(f[0].kind, FlagKind::LargeInsert);
         assert_eq!(of_event(&ev(1, "text_delete", "", &long))[0].kind, FlagKind::LargeDelete);
         assert_eq!(of_event(&ev(1, "import_document", "starting text", ""))[0].kind, FlagKind::Imported);
+        // A blank New: nothing was there.
+        assert!(of_event(&ev(1, "import_document", "", "")).is_empty());
     }
 
     #[test]

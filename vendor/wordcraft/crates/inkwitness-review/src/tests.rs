@@ -50,10 +50,27 @@ fn written_docx() -> Vec<u8> {
     run(&mut app, "edit.paste", json!({"text": text_185()}));
     run(&mut app, "text.backspace", json!({}));
     run(&mut app, "edit.undo", json!({}));
+    saved(&app)
+}
+
+/// The DOCX the writer page saves for `app`'s document.
+fn saved(app: &WordApp) -> Vec<u8> {
     let prepare = app.services.prepare_save.as_ref().unwrap_or_else(|| panic!("no save hook"));
     let doc = prepare("essay.docx", &app.session.doc).unwrap_or_else(|e| panic!("{e}")).unwrap_or_else(|| panic!("nothing embedded"));
     assert!(prepare("essay.pdf", &app.session.doc).unwrap_or_else(|e| panic!("{e}")).is_none(), "only a Word document carries the history");
     wordcraft_engine::io::save_bytes("essay.docx", &doc).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// A writer where the student picks New (`params`) on the start screen, then types "Test 123"
+/// (FAL-547); the DOCX bytes.
+fn written_after_new(params: Value) -> Vec<u8> {
+    let mut app = WordApp::new(Session::new(Document::new()), Services::default());
+    super::writer::attach(&mut app, Box::new(TestEnv { ms: 0, ids: 0 }), Box::new(|| "2026-10-28T09:05:00Z".to_string()));
+    run(&mut app, "file.new", params);
+    for c in "Test 123".chars() {
+        run(&mut app, "text.insert", json!({"text": c.to_string()}));
+    }
+    saved(&app)
 }
 
 fn review_app() -> WordApp {
@@ -608,4 +625,73 @@ fn a_new_comment_draft_has_the_keyboard() {
     assert_eq!(review.draft.as_ref().map(|d| d.text.as_str()), Some("Which event? "));
     assert_eq!(review.loaded.as_ref().map_or(0, |l| l.state.seq), seq, "typing never moved the replay");
     assert!(!review.player.playing);
+}
+
+/// The New picked on the writer's start screen is not a section of the timeline before the
+/// writing, and a blank one is not "Text already there": Play starts on the student's first
+/// change (FAL-547).
+#[test]
+fn the_review_starts_where_the_writing_starts() {
+    use crate::flags::{self, FlagKind};
+    use crate::player::{Player, Timeline};
+    let new_seq = |l: &super::review::Loaded| l.replay.events().iter().position(|e| e["type"] == "import_document").map(|i| i as u64 + 1);
+
+    let l = super::review::load("essay.docx", &written_after_new(json!({}))).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(Some(l.first), new_seq(&l), "the writing starts after the New");
+    assert!(flags::compute(&l).is_empty(), "a blank New put no text there");
+    let tl = Timeline::new(l.replay.events(), l.first, l.replayable, true);
+    assert_eq!(tl.time_of(l.first), 0.0, "nothing before the writing takes room on the timeline");
+    assert!(tl.time_of(l.first + 1) > 0.0);
+    assert_eq!(Player::default().play(&tl, l.replayable, l.replayable), Some(l.first), "Play from the end starts where the writing starts");
+    assert_eq!(Player::default().play(&tl, 0, l.replayable), Some(l.first), "and from before it too");
+
+    // A document with text in it, opened at the start: playback starts on it, and the flag says
+    // how much was already there.
+    let l = super::review::load("essay.docx", &written_after_new(json!({"template": "sample"}))).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(Some(l.first), new_seq(&l));
+    let f = flags::compute(&l);
+    let opened: Vec<_> = f.iter().filter(|f| f.kind == FlagKind::Imported).collect();
+    assert_eq!(opened.len(), 1, "{f:?}");
+    assert_eq!(Some(opened[0].seq), new_seq(&l));
+    assert!(!opened[0].label.ends_with(" 0 characters"), "{}", opened[0].label);
+
+    // Typing first: the writing starts at the start.
+    let l = super::review::load("essay.docx", &written_docx()).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(l.first, 0);
+}
+
+/// A 1×1 PNG.
+const PNG: [u8; 69] = [
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65,
+    84, 120, 156, 99, 56, 33, 39, 7, 0, 2, 182, 1, 5, 52, 166, 117, 170, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
+/// A picture the student inserted shows on the review page whenever it's in the shown state, and
+/// is in the review copy: the history says where it goes, and the saved file has the picture
+/// (FAL-547).
+#[test]
+fn pictures_come_from_the_saved_file() {
+    let mut app = WordApp::new(Session::new(Document::new()), Services::default());
+    super::writer::attach(&mut app, Box::new(TestEnv { ms: 0, ids: 0 }), Box::new(|| "2026-10-28T09:05:00Z".to_string()));
+    run(&mut app, "text.insert", json!({"text": "A"}));
+    run(&mut app, "insert.picture", json!({"data": wordcraft_engine::cmd::insert::base64_encode(&PNG)}));
+    let key = app.session.doc.media.keys().next().cloned().unwrap_or_else(|| panic!("no picture inserted"));
+    let bytes = saved(&app);
+
+    let mut app = review_app();
+    let mut review = Review::default();
+    review.open(&mut app, "essay.docx", &bytes);
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("{:?}", review.error));
+    assert_eq!(l.consistency, Consistency::Consistent);
+    assert!(!l.state.doc.media.contains_key(&key), "the history alone has no picture");
+    let shown = |app: &WordApp| app.session.doc.media.get(&key).map(|b| b.to_vec());
+    assert_eq!(shown(&app), Some(PNG.to_vec()), "the last state shows it");
+    review.seek(&mut app, 1);
+    review.seek(&mut app, 2);
+    assert_eq!(shown(&app), Some(PNG.to_vec()), "and still does when the reviewer comes back to it");
+
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("no file"));
+    let (name, copy) = crate::export::review_copy(l, &[]).unwrap_or_else(|e| panic!("{e}"));
+    let reopened = wordcraft_engine::io::open_bytes(&name, &copy).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(reopened.media.values().map(|b| b.to_vec()).collect::<Vec<_>>(), vec![PNG.to_vec()], "the review copy has it");
 }
