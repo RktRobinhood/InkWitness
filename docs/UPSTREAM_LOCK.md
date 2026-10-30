@@ -65,6 +65,10 @@ Keep this list current. Every change to `vendor/wordcraft/` must be listed here 
 | `crates/inkwitness-review/` | New `toolbar.rs` (the viewer's toolbar, `SHOWN`/`HIDDEN`, `setup`), `rail.rs` (the "Observations & notes" rail) and `card.rs` (the reusable rail card); `review.rs` draws them (`Review::chrome` replaces `panel`); tests for the hidden controls, viewer commands and the paste card; dependency `chrono`, dev-dependency `egui_kittest` (both already in the workspace) | FAL-448 |
 | `apps/wordcraft-web/src/web.rs` | Review: `toolbar::setup` (viewer chrome, Critic palette, page width), `Review::chrome`, and no preference writes from the review page | FAL-448 |
 | `Cargo.lock` | `wordcraft-inkwitness-review` dependency list | Same |
+| `crates/ui-egui/src/canvas.rs` | `CanvasState::review_highlights`: the review page's highlights, painted over their ranges (the document isn't changed) | FAL-547: teacher highlights |
+| `crates/ui-egui/src/lib.rs` | `WordApp::viewer_ribbon`: with `viewer_chrome`, the ribbon is drawn above the panes; `viewer_allows` takes whether it is shown and then lets `ui.tab` switch tabs (never to File) | FAL-547: the review page's Full ribbon switch. Off by default |
+| `crates/ui-egui/src/ribbon.rs` | With `viewer_chrome`, no File tab and no Share, Editing or Comments button in the tab strip | Same |
+| `crates/ui-egui/src/widgets.rs` | `enabled`: what a viewer refuses (`viewer_allows`) shows greyed out | Same |
 
 Not yet rebranded (tracked as a follow-up): the Help-tab keytip and the `ui.discord` command, Options and default-app strings, `web.rs` start-up error text, the sample document link, and generator metadata in `crates/docx` (`Application`), `crates/pdf` and `crates/formats/src/latex.rs`.
 

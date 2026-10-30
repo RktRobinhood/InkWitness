@@ -291,12 +291,15 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // The tabs shown: File, the user's tabs in their order (Customize Ribbon, #379), then the
     // contextual ones (the Outlining tab right after File). A contextual tab (Table, Picture
     // Format) may be stored while the selection moved away, and a tab may have been hidden.
+    // InkWitness Review's ribbon (FAL-547) has no File tab: the page opens files its own way and
+    // never saves the student's.
+    let viewer = app.viewer_chrome;
     let user_tabs = app.session.ribbon.tabs().into_owned();
-    let mut tabs: Vec<(String, bool)> = vec![("File".to_string(), false)];
+    let mut tabs: Vec<(String, bool)> = if viewer { Vec::new() } else { vec![("File".to_string(), false)] };
     tabs.extend(user_tabs.iter().filter(|e| !e.hidden).map(|e| (e.name.clone(), e.custom)));
     for ct in contextual_tabs(&app.session) {
         if ct == "Outlining" {
-            tabs.insert(1.min(tabs.len()), (ct.to_string(), false));
+            tabs.insert(usize::from(!viewer).min(tabs.len()), (ct.to_string(), false));
         } else if !tabs.iter().any(|(n, _)| n == ct) {
             tabs.push((ct.to_string(), false));
         }
@@ -332,7 +335,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     // The gaps (6 + 4 + 8) and the strip's margin.
                     spaced(share_button) + spaced(editing) + spaced(comment) + 18.0 + 12.0
                 };
-                let button_levels = [button_widths(0), button_widths(1), button_widths(2)];
+                // The review page's ribbon has no Share, Editing or Comments button (FAL-547).
+                let button_levels = if viewer { [0.0; 3] } else { [button_widths(0), button_widths(1), button_widths(2)] };
                 let labels: Vec<&str> = tabs.iter().map(|(tab, custom)| if *custom { tab.as_str() } else { tl!(tab) }).collect();
                 let specs: Vec<TabSpec> = tabs
                     .iter()
@@ -350,7 +354,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     // these buttons. Disabling the whole line took the tab strip with it: the
                     // tabs took clicks that did nothing, so the empty window had no way back to
                     // the Start screen (#3045).
-                    ui.add_enabled_ui(app.has_document(), |ui| {
+                    ui.add_enabled_ui(app.has_document() && !viewer, |ui| {
+                        if viewer {
+                            return;
+                        }
                         let (share_size, share_text) =
                             if plan.buttons < 2 { (((share_w + 36.0).max(74.0), 24.0), true) } else { ((30.0, 24.0), false) };
                         let (r, resp) = ui.allocate_exact_size(vec2(share_size.0, share_size.1), Sense::click());

@@ -108,8 +108,10 @@ pub struct Review {
     /// The loaded history's time scale.
     pub timeline: Timeline,
     pub player: Player,
-    /// The teacher's comments, in the order they were written. In memory only.
+    /// The teacher's comments and highlights, in the order they were made. In memory only.
     pub comments: Vec<TeacherComment>,
+    /// The Highlight button's colour (the last one picked).
+    pub colour: wordcraft_doc::props::Highlight,
     /// The comment being written or edited.
     pub draft: Option<Draft>,
     next_id: u32,
@@ -202,13 +204,68 @@ impl Review {
         self.put(app);
     }
 
-    /// Put the shown state, with the teacher's comments, on the page.
+    /// Put the shown state, with the teacher's comments and highlights, on the page.
     fn put(&mut self, app: &mut WordApp) {
         if let Some(l) = &self.loaded {
             let (doc, added) = show(app, l, &self.comments);
             self.shown = Some(doc);
             self.added = added;
         }
+        self.paint_highlights(app);
+    }
+
+    /// Paint the teacher's highlights that can be found in the shown state over their text. The
+    /// page's document isn't changed, so the view stays where it is.
+    fn paint_highlights(&self, app: &mut WordApp) {
+        app.canvas.review_highlights.clear();
+        let (Some(l), Some(shown)) = (&self.loaded, &self.shown) else { return };
+        for c in &self.comments {
+            let (Some(h), Some(anchor)) = (c.highlight, &c.anchor) else { continue };
+            let Some((a, b)) = comments::locate(&l.state, anchor) else { continue };
+            let (a, b) = (crate::export::to_shown(shown, &self.added, &a), crate::export::to_shown(shown, &self.added, &b));
+            app.canvas.review_highlights.push((a, b, crate::toolbar::page_colour(h)));
+        }
+    }
+
+    /// The Highlight button's colour (yellow until another is picked).
+    pub fn highlight_colour(&self) -> wordcraft_doc::props::Highlight {
+        if self.colour == wordcraft_doc::props::Highlight::None { wordcraft_doc::props::Highlight::Yellow } else { self.colour }
+    }
+
+    /// Highlight the text selected on the page in `colour`, at the moment shown. The highlight is
+    /// kept with the comments, anchored in the final document; text that is gone by then can't be
+    /// highlighted.
+    pub fn highlight_here(&mut self, app: &mut WordApp, colour: wordcraft_doc::props::Highlight) {
+        let Some(l) = &self.loaded else { return };
+        self.player.pause();
+        self.tab = RailTab::Comments;
+        if app.session.sel.is_collapsed() {
+            self.notice = Some("Select text on the page first, then press Highlight.".into());
+            return;
+        }
+        let on_page = |p: &Pos| self.shown.as_ref().map_or_else(|| p.clone(), |d| crate::export::from_shown(d, &self.added, p));
+        let (a, b) = app.session.sel.ordered();
+        let placed = comments::anchor_forward(&l.state, &l.last, &on_page(&a), &on_page(&b));
+        let Some((anchor, false)) = placed.filter(|(x, _)| !x.quote.trim().is_empty()) else {
+            self.notice = Some("This text isn't in the final document, so it can't be highlighted. Add a comment on it instead.".into());
+            return;
+        };
+        self.next_id += 1;
+        self.comments.push(TeacherComment {
+            id: self.next_id,
+            text: String::new(),
+            highlight: Some(colour),
+            anchor: Some(anchor),
+            moved: false,
+            seq: (l.state.seq > 0).then_some(l.state.seq),
+            from_flag: None,
+            written: now_iso(),
+        });
+        self.colour = colour;
+        self.notice = None;
+        // The selection would cover the colour: the caret goes to its end.
+        app.session.sel = Selection::caret(b);
+        self.paint_highlights(app);
     }
 
     /// The first paste event, if there is one.
@@ -290,7 +347,9 @@ impl Review {
         if !app.fonts_ready() {
             return;
         }
-        crate::toolbar::show(ui, app, self.loaded.is_some());
+        let mut colour = self.highlight_colour();
+        let tool = crate::toolbar::show(ui, app, self.loaded.is_some(), &mut colour);
+        self.colour = colour;
         let t = wordcraft_ui_egui::theme::Tokens::get(ui.ctx());
         let a = wordcraft_ui_egui::theme::critic::Accents::get(ui.ctx());
         self.play(ui, app);
@@ -326,6 +385,11 @@ impl Review {
             // the draft); the draft's text box keeps it.
             app.canvas.want_focus = false;
             self.took_focus = false;
+        }
+        match tool {
+            Some(crate::toolbar::ToolbarAction::Highlight(h)) => self.highlight_here(app, h),
+            Some(crate::toolbar::ToolbarAction::Comment) => self.comment_here(app),
+            None => {}
         }
         if let Some(d) = dock {
             self.dock(app, d);
@@ -372,7 +436,8 @@ impl Review {
         }
     }
 
-    fn rail(&mut self, app: &mut WordApp, r: RailAction) {
+    /// Do what the rail asked for.
+    pub fn rail(&mut self, app: &mut WordApp, r: RailAction) {
         match r {
             RailAction::GoTo(s) => self.go(app, s),
             RailAction::Promote(s) => self.promote(app, s),
@@ -384,11 +449,13 @@ impl Review {
                 }
             }
             RailAction::Delete(id) => {
+                let highlight = self.comments.iter().any(|c| c.id == id && c.highlight.is_some());
                 self.comments.retain(|c| c.id != id);
                 if self.draft.as_ref().is_some_and(|d| d.editing == Some(id)) {
                     self.draft = None;
                 }
-                self.put(app);
+                // A highlight is only painted: the page and the view stay as they are.
+                if highlight { self.paint_highlights(app) } else { self.put(app) }
             }
             RailAction::Show(id) => {
                 let Some(c) = self.comments.iter().find(|c| c.id == id) else { return };
@@ -472,6 +539,7 @@ impl Review {
                 self.comments.push(TeacherComment {
                     id: self.next_id,
                     text: d.text,
+                    highlight: None,
                     anchor: d.anchor,
                     moved: d.moved,
                     seq: d.seq,
@@ -490,7 +558,7 @@ impl Review {
         self.comments.iter().any(|c| c.from_flag.is_some_and(|(s, _)| s == seq))
     }
 
-    /// Download a review copy with the teacher's comments ([`crate::export`]).
+    /// Download a review copy with the teacher's comments and highlights ([`crate::export`]).
     pub fn export(&mut self, app: &mut WordApp) {
         let Some(l) = &self.loaded else { return };
         self.notice = Some(match crate::export::review_copy(l, &self.comments) {
