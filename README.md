@@ -1,127 +1,158 @@
 <p align="center"><img src="assets/brand/inkwitness-lockup.svg" alt="InkWitness" width="630"></p>
 <p align="center"><strong>Every document has a story.</strong></p>
 <p align="center"><em>Write · Replay · Understand</em></p>
+<p align="center">
+  <a href="https://rktrobinhood.github.io/InkWitness/review/"><strong>Open InkWitness Review</strong></a> ·
+  <a href="https://rktrobinhood.github.io/InkWitness/write/">Open InkWitness Write</a> ·
+  <a href="https://rktrobinhood.github.io/InkWitness/">Project home</a>
+</p>
 
 # InkWitness
 
-**A Word-compatible writing environment with transparent, replayable evidence of how a document developed.**
+**A Word-style editor that records how a document is written, and a teacher page that replays it.**
 
-![InkWitness visual identity](assets/brand/brand-preview.png)
+Students hand in **one ordinary `.docx`** that opens in Microsoft Word. Inside it, InkWitness keeps the history of how the document was written. Teachers open the same file on the Review page, replay the writing, look at the flagged moments and add their own comments. The file never leaves the teacher's computer: there are no accounts, no uploads and no server.
 
-**Brand assets:** [Preview the icons and logo](assets/brand/preview.html) · [Brand usage and upstream replacement map](docs/BRANDING.md). Product routes are **InkWitness Write** and **InkWitness Review**; internal `urn:workalone:*` v1 wire-format identifiers remain intact until an explicitly versioned migration.
+InkWitness is open source and built on [WordCraft](https://github.com/storytold/wordcraft), a Word-compatible word processor written in Rust and compiled to WebAssembly. It is being developed for a supervised IB Theory of Knowledge essay writing day.
 
+![InkWitness Review paused at a pasted passage in the sample essay: the pasted text is highlighted on the page, the AI-style phrase card quotes the matched wording, and the timeline marks each flag with a pin](site/img/review-sample.png)
 
-> **Project status (27 October 2026): G0 IN PROGRESS — TECHNICAL PREVIEW ONLY. V2 IS A FUTURE ROADMAP ONLY.** WordCraft v0.11.0 is imported in full under `vendor/wordcraft/` (see [`docs/UPSTREAM_LOCK.md`](docs/UPSTREAM_LOCK.md)) and builds to WebAssembly. A rebranded **technical preview** is published to GitHub Pages at `https://rktrobinhood.github.io/InkWitness/` with `/write/` and `/review/` routes. **It does not yet record writing history, export evidence or replay anything.** Every page says so. Do not distribute it to students until the release gates pass.
+<p align="center"><em>The sample submission, replayed to the moment a chatbot answer was pasted in.</em></p>
 
-### Build the site locally
+## Try it
+
+1. Open [InkWitness Review](https://rktrobinhood.github.io/InkWitness/review/) and press **Try a sample submission**. The essay and the student are made up.
+2. Hover the star-shaped pin on the timeline, then click it to jump to the pasted passage.
+3. Press **Promote to comment**, shorten the draft and press **Save comment**.
+4. Select a few words on the page, press **+ Add comment** and save.
+5. Press **Download review copy (.docx)** and open the file in Word.
+6. Press play to watch the essay being written from the start.
+
+To review a real submission, press **Open DOCX…** or drop the file onto the page.
+
+## What it does
+
+### InkWitness Write (`/write/`), for students
+
+- The WordCraft word processor, running entirely in the browser.
+- Every committed edit is recorded. A paste is linked to the exact edit it made, not guessed from text length.
+- Save writes a normal `.docx`. The writing history is stored inside it as an [Open Packaging Conventions Custom XML part](docs/DOCX_FORMAT.md), which Word and LibreOffice keep when they resave the file.
+
+### InkWitness Review (`/review/`), for teachers
+
+| | |
+|---|---|
+| **Read the document** | The submitted file is shown as pages, read-only, exactly as WordCraft lays it out. |
+| **Replay the writing** | A player along the bottom: play and pause at 0.5× to 16×, skip idle time, pause at flags, step one edit or one flag at a time, or drag along the timeline. |
+| **Flags** | Pins on the timeline and cards in the side rail for **Paste**, **Large paste**, **Large insertion**, **Large deletion**, **Text already there** (in the file when it was opened) and **AI-style phrase**. Each card shows when it happened, how far into the session, how much changed and the text involved. Hover a pin for details and click it to jump there. |
+| **Teacher comments** | Select text on the page and add a comment. Comments appear beside the page like Word comments, and you can edit or remove them. The student's file is never changed. |
+| **Promote to comment** | Turn any flag or edit into a draft comment, filled in from the record. Trim or rewrite it, then save it. |
+| **Review copy** | Download a `.docx` of the essay with your comments as Word comments. |
+| **History check** | Review replays the whole history and says whether it rebuilds the document, whether the file was changed outside InkWitness, or whether the history is damaged or missing. |
+
+## Fair by design
+
+- **Flags say what happened, never why.** There is no AI-detection score, no probability and no verdict. A flag is a reason to look more closely or to talk with the student.
+- **AI-style phrase flags quote the exact wording,** such as "As an AI language model", so the teacher can judge it. They only look at pasted, imported or large inserted text.
+- **Files stay on your computer.** Both pages are static files. There are no accounts, no uploads, no analytics, no third-party scripts and no remote AI services.
+- **Students can see what is recorded.** The code is public, so there are no hidden checks. InkWitness does not log raw keystrokes, inspect other tabs, read browser extensions or fingerprint devices.
+- **The history is a record, not a signature.** The history check catches accidental damage and many later edits. A student controls their own file, so a determined student could alter it. Keep the copy that was handed in.
+
+## Current limits
+
+- **Comments live in the browser tab** until you download the review copy. Reloading the page clears them.
+- **Write doesn't yet ask for the student's name, show the academic-integrity notice or save automatically.** Students should save often. These are the next stage of work (G1 below).
+- **Browsers:** tested so far in desktop Chromium, the engine behind Chrome and Edge. A browser with WebGL2 is needed. Firefox, Safari and school-managed devices are not tested yet.
+- **Microsoft Word:** WordCraft and LibreOffice round trips keep the history. Opening a submission or a review copy in desktop Word has not been tested yet.
+- **Edits made later in Word** are not recorded. If a student keeps working in Word, the history covers only the time spent in InkWitness Write, and Review reports that the file was changed outside InkWitness.
+- WordCraft is **alpha software**. Check DOCX layout and behaviour in your school's browsers before relying on it.
+
+## Roadmap
+
+| Stage | Scope | Status |
+|---|---|---|
+| **G0** | Import WordCraft, record edits, embed the history in the DOCX, replay it | Done |
+| **G1** | Student name and assessment title, academic-integrity notice and first-save confirmation, autosave and crash recovery | Next |
+| **G2** | Teacher review: replay player, flags, comments, review copy | Largely built; smooth scrolling during replay and keeping comments across a reload remain |
+| **G3** | Cross-browser and Word testing, accessibility, privacy and hostile-file hardening | Planned |
+| **V2** | School Microsoft 365 sign-in, OneDrive/SharePoint and Teams hand-in, teacher assignment designer | Future, after V1 is in classroom use |
+
+The detailed release gates are in [`docs/PROJECT_PHASES.md`](docs/PROJECT_PHASES.md) and [`docs/BACKLOG.md`](docs/BACKLOG.md).
+
+| | **V1 (now)** | **V2 (later)** |
+|---|---|---|
+| Hosting | Static GitHub Pages: `/write/` and `/review/` | School-approved Microsoft 365 workflow; the web front end can stay |
+| Identity | Name and assessment title entered by the student, local attempt ID | School Microsoft Entra ID sign-in and roles |
+| Drafts | Browser storage and local backups | The same, plus approved OneDrive/SharePoint sync |
+| Hand-in | **One ordinary `.docx`**, submitted through the school's usual channel | Delivered through an authorized Teams/SharePoint workflow |
+| Review | Teacher opens the `.docx` locally at `/review/` | Teacher inbox, plus the same replay |
+| Dependencies | **No Microsoft registration, tenant permissions, database or backend** | Needs school IT approval before any work starts |
+
+**Scope rule for contributors and coding agents:** build V1 (G0–G3) first. Do not add Microsoft sign-in, Graph, teacher dashboards, cloud buttons or backend work to V1. V2 starts only after V1 is deployed and passes its classroom-readiness gates, and it reuses V1's DOCX format and replay engine. See [`docs/V2_MICROSOFT365_ROADMAP.md`](docs/V2_MICROSOFT365_ROADMAP.md) and [`docs/V2_DISCOVERY_AND_SECURITY.md`](docs/V2_DISCOVERY_AND_SECURITY.md).
+
+## Build and run locally
 
 Needs Rust 1.95 with the `wasm32-unknown-unknown` target, and Trunk 0.22.1.
 
 ```sh
-scripts/build-pages.sh            # writes dist/pages/{index.html,write/,review/,app/,brand/,licenses/}
-python3 -m http.server -d dist/pages 8000   # then open http://127.0.0.1:8000/write/
+scripts/build-pages.sh                       # writes dist/pages/{index.html,img/,write/,review/,app/,brand/,licenses/}
+python3 -m http.server -d dist/pages 8000    # then open http://127.0.0.1:8000/
 ```
 
 For editor development, use upstream's dev server: `cd vendor/wordcraft/apps/wordcraft-web && trunk serve`, then open <http://127.0.0.1:8771/>.
 
-`.github/workflows/pages.yml` builds the same site on every pull request and deploys it to GitHub Pages on every push to `main`.
-
-InkWitness is an open-source, privacy-conscious educational project intended to extend [WordCraft](https://github.com/storytold/wordcraft) (Rust/WebAssembly, MIT OR Apache-2.0). It is being designed for a supervised IB Theory of Knowledge essay writing day, and later for teacher-configurable multi-question assessments. The goal is not to decide whether students cheated, but to preserve a useful, reviewable account of a writing session.
-
-## Project versions — development order
-
-| | **V1 — build and test now** | **V2 — plan for later** |
-|---|---|---|
-| Hosting | Two static GitHub Pages `/write/` and `/review/` | School-approved Microsoft 365-backed workflow; frontend can remain web-hosted |
-| Identity | Required name + assessment title, local attempt ID | School Microsoft Entra ID sign-in and role-based permissions |
-| Assignments | Single TOK essay; no remote publishing | Teacher designer/publisher, student assignment dashboard, later multi-stage questions |
-| Draft saving | Robust IndexedDB journal + local backups | Same local recovery, plus approved OneDrive/SharePoint sync |
-| Hand-in | **One ordinary DOCX**, student submits via existing school channel | Final DOCX delivered through authorized Teams/SharePoint workflow; student keeps a copy |
-| Review | Teacher opens DOCX locally at `/review/` | Authenticated teacher inbox/dashboard plus the same DOCX replay |
-| Dependency | **No Microsoft registration, tenant permissions, database or custom backend** | Requires school IT/permission feasibility checks before implementation |
-
-**Binding scope rule:** Coding agents must implement **G0–G3 (V1)** first. Do **not** add Microsoft sign-in, Graph dependencies, teacher dashboards, fake cloud buttons, permissions or backend work to V1. V2 development begins only after successful V1 deployment and classroom-readiness gates. Read [Project phases](docs/PROJECT_PHASES.md), [V2 roadmap](docs/V2_MICROSOFT365_ROADMAP.md) and [V2 feasibility checklist](docs/V2_DISCOVERY_AND_SECURITY.md). V2 should reuse V1's interoperable DOCX and replay engine rather than replacing them.
-
-## What the finished V1 project will do
-
-| Student `/write/` | Teacher `/review/` |
-|---|---|
-| Familiar WordCraft word processor in the browser | Read-only WordCraft rendering of the actual submitted document |
-| Required name and assessment title; auto-generated header, properties and optional subtle watermark | Bottom-mounted video-style replay: play, pause, scrub, event pins, speed and skip-idle |
-| Clearly disclosed academic-integrity and AI-use policy; confirmation on first deliberate export | Smooth, viewport-aware scrolling; anchored observation cards appear beside the relevant text |
-| Local autosave, durable recovery, and optional disk-backed backups | Exact paste/delete/undo/format-event links; optional source-overlap and citation checks |
-| **One normal `.docx`** exported with native Word revisions and an embedded InkWitness event log | Import the **same `.docx` locally** and produce a neutral writing-process report |
-
-**One-file hand-in:** The student submits a `.docx` through their school's ordinary assignment system. Teachers can read it in regular Microsoft Word. The optional InkWitness teacher page reads additional replay data stored in an **Open Packaging Conventions (OPC) Custom XML Part** within that same file. This is *not* the discontinued inline custom XML markup feature in Word.
-
-**No application server:** Both pages will be built as static assets and deployed on GitHub Pages. The editor stores drafts in the browser. The reviewer reads DOCX files locally in the teacher's browser. There is no online essay submission database, no silent upload, and no external AI detection API in the baseline. The school still receives the document when the student submits it through the school's established workflow.
-
-## How to start the implementation
-
-1. Create an **empty public GitHub repository**. Upload/extract this starter package into its root and commit it.
-2. Open **[`docs/AGENT_PROMPT.md`](docs/AGENT_PROMPT.md)** in Claude Code, Codex or another coding agent. Tell it to read [`AGENTS.md`](AGENTS.md), [`docs/SPEC.md`](docs/SPEC.md), the schema and the test matrix. This is an implementation handoff, not a request for another design proposal.
-3. The agent must first carry out **Gate G0** (source build + instrumentation + real DOCX Custom XML + first replay). Follow [`docs/BACKLOG.md`](docs/BACKLOG.md). It should import the **complete WordCraft workspace**, not cherry-pick UI source files; see [`docs/UPSTREAM_PLAN.md`](docs/UPSTREAM_PLAN.md).
-4. When G0 works, implement the student app (G1), teacher reviewer (G2), then reliability/privacy/compatibility hardening (G3). **Do not enable the Pages deployment workflow as a functional school tool before the tests pass.**
-5. Publish static build outputs at `/write/` and `/review/` using an Actions Pages deployment. The unlisted reviewer address is a convenience, *not* a security control; the reviewer holds no uploaded documents on the site.
-
-Local specification and brand asset checks (no Node, Rust or WordCraft source necessary):
+Specification, schema and brand checks (no Rust needed):
 
 ```sh
 python3 scripts/validate_starter.py
 ```
 
-WordCraft's documented upstream WebAssembly development entry point is `cd apps/wordcraft-web && trunk serve`, with the upstream Rust toolchain. Verify the pinned version and source instructions before implementing; they may change.
+`.github/workflows/pages.yml` builds the site on every pull request and deploys it to GitHub Pages on every push to `main`. `.github/workflows/evidence-tests.yml` runs the recorder, DOCX and replay tests.
 
-## Core concepts
+Coding agents start with [`AGENTS.md`](AGENTS.md) and [`docs/AGENT_PROMPT.md`](docs/AGENT_PROMPT.md). Contribution notes are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-- **Observed events:** actual committed editor operations, actual clipboard events where the browser reports them, recovery and import boundaries. A large difference in serialized XML/JSON is *not* a paste event.
-- **Advisory findings:** transparent similarity/structure checks and reference leads. None establishes AI authorship, plagiarism or misconduct; never show a purported AI percentage.
-- **Recording history:** snapshots and reversible semantic operations with stable event IDs and exact anchors, embedded within the DOCX. The teacher reviewer must never invent missing history.
-- **Integrity:** reconstructing event records and comparing the recorded final state with the document detects accidental corruption and many edits. **A locally generated hash inside a student-controlled DOCX cannot authenticate an adversarially modified file**; an independent receipt or controlled hand-in copy is required for independent post-export comparison.
-- **Continuation in Word:** students may edit the DOCX later. The previously embedded writing-day history can survive standard Word saves when Custom XML Parts are preserved, but later typing in Word is *not recorded as InkWitness replay*. The teacher should retain the original writing-day submission.
-- **Agency and privacy:** the tool visibly tells students what is recorded. It does not fingerprint devices, record raw keystrokes as surveillance, inspect unrelated tabs, read browser-extension lists or send student prose to third-party services.
+## How it works
 
-## Branding and WordCraft attribution
+- **Observed events:** committed editor operations, clipboard events where the browser reports them, and import and recovery boundaries. A large difference between two saved files is *not* a paste event.
+- **Recording history:** checkpoints and reversible operations with stable event IDs and exact anchors, embedded in the DOCX. Replay rebuilds the document in WordCraft's own page renderer; it is not a screen recording. Review never invents missing history.
+- **Flags:** computed from the recorded events by transparent rules ([`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md)). None of them establishes AI authorship, plagiarism or misconduct.
+- **Integrity:** replaying the events and comparing the result with the document detects accidental corruption and many edits. **A hash inside a student-controlled DOCX cannot authenticate a deliberately modified file.** An independent receipt or a controlled hand-in copy is needed for that.
+- **Continuing in Word:** the history survives normal Word saves when Custom XML parts are kept, but typing done later in Word is not part of the InkWitness replay. Keep the original writing-day submission.
 
-InkWitness is the new public brand. Its original SVG icons, PNGs, favicon and social preview are included in `assets/brand/`; the agent should replace the **application logo, splash/loading identity and favicon**, not every editing command icon. Upstream ArtCraft logos carry trademark restrictions on modified forks: see [the branding contract](docs/BRANDING.md). **InkWitness is independently developed on the WordCraft codebase and is not affiliated with or endorsed by the ArtCraft Team or Microsoft.**
-
-## Project directory
+## Repository layout
 
 | Path | Purpose |
 |---|---|
-| `AGENTS.md` | Standing instructions for development agents |
-| `assets/brand/` | Original InkWitness SVG logo/icons, favicons, social preview and local gallery |
-| `docs/BRANDING.md` | Branding integration, palettes, asset licensing and upstream trademark boundary |
-| `docs/SPEC.md` | Product contract and implementation architecture |
-| `docs/AGENT_PROMPT.md` | Start-here coding-agent assignment (V1 only) |
-| `docs/PROJECT_PHASES.md` | Binding V1 exit gate and V2 scope boundary |
-| `docs/V2_MICROSOFT365_ROADMAP.md` | Future teacher/student Microsoft 365 assessment workflow |
-| `docs/V2_DISCOVERY_AND_SECURITY.md` | Future school IT, permissions, identity, privacy and feasibility decisions |
-| `docs/UPSTREAM_PLAN.md` | What to clone, modify and preserve from WordCraft |
-| `docs/DOCX_FORMAT.md` | Standard DOCX parts, evidence envelope and trust semantics |
-| `docs/REPLAY_UI.md` | Video-style review behavior and spatial event binding |
-| `docs/DIAGNOSTICS.md` | Local-first analysis stack and ethical constraints |
-| `docs/STORAGE_AND_RECOVERY.md` | IndexedDB journal, snapshots, backups and failure UI |
-| `docs/POLICY_AND_PRIVACY.md` | Student disclosure, academic-integrity declaration, AI-agent notices |
-| `docs/BACKLOG.md`, `docs/TEST_MATRIX.md` | Release gates and concrete regression tests |
-| `docs/SOURCES.md` | Original vendor/docs/policy research links |
-| `schemas/` | Provisional versioned structured data contracts |
-| `policies/` | Public policy/AI-assistant declaration examples; not secret controls |
-| `examples/` | Fictional example evidence for schema validation only |
-| `scripts/` | Bootstrap and starter-validation helpers |
+| `vendor/wordcraft/` | WordCraft v0.11.0, imported in full, with InkWitness changes listed in [`docs/UPSTREAM_LOCK.md`](docs/UPSTREAM_LOCK.md) |
+| `vendor/wordcraft/crates/inkwitness/` | The recorder: events, anchors, digests and the DOCX history envelope |
+| `vendor/wordcraft/crates/inkwitness-review/` | The writer hook and the Review page: replay, player, flags, comments and review copy |
+| `site/` | The project home page |
+| `scripts/` | Site build, WordCraft bootstrap and starter validation |
+| `assets/brand/` | InkWitness logo, icons, favicons and social preview |
+| `docs/SPEC.md` | Product contract and architecture |
+| `docs/PROJECT_PHASES.md`, `docs/BACKLOG.md`, `docs/TEST_MATRIX.md` | Release gates, backlog with test evidence, regression tests |
+| `docs/DOCX_FORMAT.md` | Standard DOCX parts, the history envelope and trust levels |
+| `docs/REPLAY_UI.md`, `docs/DIAGNOSTICS.md` | Review page behaviour and flag rules |
+| `docs/STORAGE_AND_RECOVERY.md` | Browser journal, checkpoints, backups and recovery |
+| `docs/POLICY_AND_PRIVACY.md` | Student disclosure, academic-integrity declaration, AI-assistant notices |
+| `docs/BRANDING.md` | Brand use and the upstream trademark boundary |
+| `docs/G0_REPORT.md` | G0 results and evidence |
+| `docs/V2_MICROSOFT365_ROADMAP.md`, `docs/V2_DISCOVERY_AND_SECURITY.md` | Future Microsoft 365 workflow and school IT decisions |
+| `schemas/`, `examples/` | Versioned data contracts and synthetic examples |
+| `policies/` | Public policy and AI-assistant declaration examples |
 
-## Constraints and limitations
+## Academic-integrity policy
 
-WordCraft is **alpha software** (upstream estimates incomplete everyday-document readiness). DOCX interoperability, WebAssembly input behavior, editor layout geometry and browser storage must be tested in school browsers. A static page cannot prevent a user from modifying their own browser runtime, cannot reliably identify ChatGPT/Claude/Gemini extensions, and cannot guarantee that local storage survives device loss or site-data deletion. For official examinations, follow school regulations including any separately required supervised monitoring tools; this project does not replace them.
+The school starting reference is [Ikast-Brande Gymnasium's IB policy page](https://www.ikast-gym.dk/ib/more-about-the-ib/policies). Its **Academic Integrity** section is dated **March 2025**. Confirm the wording with the school before use. Student-facing text paraphrases the policy and links to it; it does not quote it.
 
-### Academic-integrity policy
+For official examinations, follow school regulations, including any separately required monitoring tools. InkWitness does not replace them. A static web page cannot stop someone from modifying their own browser, cannot reliably detect AI browser extensions, and cannot guarantee that browser storage survives device loss or clearing site data.
 
-The school-based starting reference is [Ikast-Brande Gymnasium's official IB policy page](https://www.ikast-gym.dk/ib/more-about-the-ib/policies). The **Academic Integrity** section currently labels its review date **March 2025**; other sections on the same page have different review dates. Confirm wording with the school before deployment. Student-facing text is a concise paraphrase linked to the policy, not a fabricated quotation.
+## Security and student records
 
-### Licenses and attribution
+The public repository, JavaScript and WebAssembly contain **no secrets**. Never commit real student names, essays, activity records or submitted DOCX files; examples use made-up names such as "Example Student". The `/review/` address is public and is not access control, but it holds no documents: files are read in the teacher's browser. See [`docs/POLICY_AND_PRIVACY.md`](docs/POLICY_AND_PRIVACY.md) and [`docs/DOCX_FORMAT.md`](docs/DOCX_FORMAT.md).
 
-Design documents and new project-owned code in this starter are offered under the [MIT license](LICENSE). Importing WordCraft later requires preserving its **MIT OR Apache-2.0** notices, copyright/attribution and original-asset restrictions. Review every third-party library and model license before vendoring it. Do not imply that this educational project is affiliated with or endorsed by WordCraft's authors or Microsoft.
+## License and attribution
 
-### Security and student records
+InkWitness code and documents are offered under the [MIT license](LICENSE). WordCraft is MIT OR Apache-2.0; its notices, copyright and attribution are kept in `vendor/wordcraft/` and published at [`/licenses/`](https://rktrobinhood.github.io/InkWitness/licenses/). Product names in the app are **InkWitness Write** and **InkWitness Review**; internal `urn:workalone:*` v1 wire-format identifiers stay as they are until a versioned migration. See the [brand assets preview](assets/brand/preview.html) and [`docs/BRANDING.md`](docs/BRANDING.md).
 
-Public repository, public static JavaScript and public WASM contain **no secrets**. Never commit real student names, essays, activity records, or exported DOCX files to the repo. A hidden `/review/` URL is not access control. See [`docs/POLICY_AND_PRIVACY.md`](docs/POLICY_AND_PRIVACY.md) and [`docs/DOCX_FORMAT.md`](docs/DOCX_FORMAT.md).
+**InkWitness is independently developed on the WordCraft codebase and is not affiliated with or endorsed by the ArtCraft Team or Microsoft.**

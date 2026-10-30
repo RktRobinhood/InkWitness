@@ -1,5 +1,5 @@
 # Builds the WordCraft-based InkWitness WASM bundle and publishes it to GitHub Pages.
-# The published site is a G0 technical preview: every page says it is not for student use.
+# The home page (site/index.html) lists what works and the current limits.
 # Pull requests build only. Pushes to main build and deploy.
 name: Pages
 

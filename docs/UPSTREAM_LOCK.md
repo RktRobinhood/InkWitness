@@ -20,7 +20,7 @@ Keep this list current. Every change to `vendor/wordcraft/` must be listed here 
 | `docs/brand/artcraft-*.{png,svg}` | Deleted (8 files). `LICENSE-brand.txt` kept; `docs/brand/README.md` added | `docs/brand/LICENSE-brand.txt` requires modified forks to remove the ArtCraft marks |
 | `README.md` | Removed the two ArtCraft logo images (top banner and footer mark) | Same trademark requirement; the plain-text attribution stays |
 | `ATTRIBUTION.md` | ArtCraft mark rows now say "Removed from the InkWitness fork" | Keeps the attribution table accurate |
-| `apps/wordcraft-web/index.html` | InkWitness title, favicon and loading text; technical-preview banner; route name for `/write/` and `/review/` | `docs/BRANDING.md` |
+| `apps/wordcraft-web/index.html` | InkWitness title, favicon and loading text; page title and loading text named after the route (`/write/`, `/review/`). The technical-preview banner was removed on board direction (FAL-519, 2026-10-30) | `docs/BRANDING.md` |
 | `crates/ui-egui/src/lib.rs`, `chrome.rs`, `backstage.rs`, `ribbon.rs` | Window and title-bar name `InkWitness`; the ArtCraft Discord button, Backstage link and Help-tab button are hidden unless the existing "Show the community button" option is on (now off by default); title test updated | `docs/BRANDING.md` |
 | `crates/ui-egui/src/dialogs.rs` | About dialog: InkWitness name, plain-text "Based on WordCraft by the ArtCraft team", no ArtCraft links; copyright line kept | `docs/BRANDING.md`, `LICENSE-brand.txt` |
 | `crates/ui-egui/src/i18n/audit.rs` | `InkWitness` allowed as an untranslated product name | Keeps the upstream i18n audit test green |

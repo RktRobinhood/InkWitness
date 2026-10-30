@@ -27,8 +27,7 @@ pub fn attach_for(app: &mut WordApp, mut env: Box<dyn Env>, now: Box<dyn Fn() ->
     let started = env.now_iso();
     let config = Config { attempt_id: env.uuid(), session_span_id: env.uuid(), field_id: "essay".into(), section_id: Some("main".into()) };
     let entered = who.is_some();
-    let (student, assignment) =
-        who.map_or_else(|| ("Not entered (G0 technical preview)".to_string(), "g0-technical-preview".to_string()), |w| (w.student, w.assignment));
+    let (student, assignment) = who.map_or_else(|| ("Not entered".to_string(), "not-entered".to_string()), |w| (w.student, w.assignment));
     let attempt = Attempt {
         assignment_id: assignment,
         student_display_name: student,
