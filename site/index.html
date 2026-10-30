@@ -3,74 +3,225 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>InkWitness — technical preview</title>
-  <meta name="description" content="InkWitness: a Word-compatible writing environment with transparent, replayable evidence of how a document developed. Technical preview.">
+  <title>InkWitness: see how a document was written</title>
+  <meta name="description" content="InkWitness is a Word-style editor that keeps a replayable record of how a document was written, and a teacher page that replays it. Students hand in one ordinary .docx. Nothing is uploaded.">
   <link rel="icon" href="brand/favicon.svg" type="image/svg+xml">
   <link rel="alternate icon" href="brand/favicon.ico">
   <link rel="apple-touch-icon" href="brand/apple-touch-icon.png">
   <style>
-    :root { --navy: #13213A; --blue: #3685F5; --paper: #EAF3FF; --gold: #EDBA69; --slate: #60728B; }
+    :root { --navy: #13213A; --blue: #3685F5; --link: #1f63c9; --paper: #EAF3FF; --gold: #EDBA69; --slate: #60728B; --line: #dce7f5; }
     * { box-sizing: border-box; }
-    body { margin: 0; background: #f4f8fd; color: var(--navy); font: 16px/1.55 Inter, "Segoe UI", Arial, sans-serif; }
-    main { max-width: 920px; margin: 0 auto; padding: 40px 20px 64px; }
-    .lockup { width: min(100%, 560px); height: auto; display: block; }
-    .tagline { color: var(--slate); margin: 6px 0 28px; }
-    .status { background: #fff7e8; border: 1px solid var(--gold); border-left: 6px solid var(--gold); border-radius: 12px; padding: 16px 20px; }
-    .status h2 { margin: 0 0 6px; font-size: 17px; }
-    .status p { margin: 6px 0; }
-    .routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 24px 0; }
-    .card { display: flex; gap: 16px; align-items: flex-start; background: #fff; border: 1px solid #dce7f5; border-radius: 16px; padding: 20px; color: inherit; text-decoration: none; }
-    .card:hover, .card:focus-visible { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px rgba(54, 133, 245, .25); }
-    .card img { width: 64px; height: 64px; flex: none; }
-    .card h3 { margin: 0 0 4px; font-size: 18px; }
-    .card p { margin: 0; color: var(--slate); font-size: 14px; }
-    h2.section { font-size: 18px; margin: 32px 0 8px; }
-    ul { padding-left: 20px; }
-    li { margin: 4px 0; }
-    footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #dce7f5; color: var(--slate); font-size: 13px; }
-    a { color: #1f63c9; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: #fff; color: var(--navy); font: 16px/1.6 Inter, "Segoe UI", system-ui, -apple-system, Arial, sans-serif; }
+    a { color: var(--link); }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+    header.top { border-bottom: 1px solid var(--line); background: #fff; }
+    header.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 68px; }
+    header.top img { height: 44px; width: auto; display: block; }
+    header.top nav { display: flex; gap: 22px; font-size: 15px; }
+    header.top nav a { color: var(--navy); text-decoration: none; font-weight: 500; }
+    header.top nav a:hover, header.top nav a:focus-visible { color: var(--link); }
+
+    .hero { background: linear-gradient(180deg, var(--paper) 0%, #f7fbff 100%); padding: 64px 0 40px; }
+    .hero h1 { font-size: clamp(30px, 4.4vw, 46px); line-height: 1.15; letter-spacing: -0.5px; margin: 0 0 18px; max-width: 760px; }
+    .hero .lead { font-size: 18.5px; color: #31415c; max-width: 720px; margin: 0 0 28px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .btn { display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 600; font-size: 16px; text-decoration: none; border: 1.5px solid var(--blue); }
+    .btn.primary { background: var(--blue); color: #fff; }
+    .btn.primary:hover, .btn.primary:focus-visible { background: #2a72dc; border-color: #2a72dc; }
+    .btn.secondary { background: #fff; color: var(--navy); border-color: #b9cce6; }
+    .btn.secondary:hover, .btn.secondary:focus-visible { border-color: var(--blue); }
+    .hint { color: var(--slate); font-size: 14.5px; margin: 14px 0 0; }
+
+    figure.shot { margin: 40px 0 0; }
+    figure.shot img { width: 100%; height: auto; display: block; border-radius: 14px; border: 1px solid #cddbee; box-shadow: 0 18px 50px rgba(19, 33, 58, .16); }
+    figure.shot figcaption { color: var(--slate); font-size: 14px; margin-top: 12px; text-align: center; }
+
+    section { padding: 56px 0 8px; }
+    section h2 { font-size: 26px; letter-spacing: -0.2px; margin: 0 0 8px; }
+    section .sub { color: var(--slate); margin: 0 0 26px; max-width: 720px; }
+
+    .routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+    .route { display: flex; gap: 18px; align-items: flex-start; border: 1px solid var(--line); border-radius: 16px; padding: 22px; color: inherit; text-decoration: none; background: #fff; }
+    .route:hover, .route:focus-visible { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px rgba(54, 133, 245, .2); }
+    .route img { width: 56px; height: 56px; flex: none; }
+    .route h3 { margin: 0 0 2px; font-size: 19px; }
+    .route .who { color: var(--slate); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; margin: 0 0 8px; }
+    .route p { margin: 0; color: #31415c; font-size: 15px; }
+    .route .go { display: inline-block; margin-top: 12px; color: var(--link); font-weight: 600; font-size: 15px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+    .feature { background: #f7fbff; border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; }
+    .feature h3 { margin: 0 0 6px; font-size: 17px; }
+    .feature p { margin: 0; color: #31415c; font-size: 15px; }
+
+    .principles { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+    .principles li { border-left: 4px solid var(--gold); padding: 4px 0 4px 16px; }
+    .principles strong { display: block; }
+    .principles span { color: #31415c; font-size: 15px; }
+
+    ol.steps { margin: 0; padding-left: 22px; max-width: 760px; }
+    ol.steps li { margin: 8px 0; padding-left: 4px; }
+
+    .notes { background: #f7f9fc; border: 1px solid var(--line); border-radius: 14px; padding: 18px 24px; max-width: 860px; }
+    .notes ul { margin: 0; padding-left: 20px; }
+    .notes li { margin: 6px 0; color: #31415c; font-size: 15px; }
+
+    footer { margin-top: 64px; border-top: 1px solid var(--line); background: #f7f9fc; }
+    footer .wrap { padding: 28px 24px 40px; color: var(--slate); font-size: 13.5px; }
+    footer p { margin: 6px 0; }
+    kbd { font: 600 13px Inter, "Segoe UI", system-ui, sans-serif; background: #fff; border: 1px solid #cddbee; border-bottom-width: 2px; border-radius: 6px; padding: 1px 7px; color: var(--navy); white-space: nowrap; }
+
+    @media (max-width: 640px) {
+      .wrap { padding: 0 16px; }
+      header.top .wrap { height: 60px; gap: 10px; }
+      header.top nav { gap: 12px; font-size: 14px; }
+      header.top img { height: 30px; }
+      .hero { padding-top: 36px; }
+      kbd { white-space: normal; }
+    }
   </style>
 </head>
 <body>
+<header class="top">
+  <div class="wrap">
+    <a href="./" aria-label="InkWitness home"><img src="brand/inkwitness-lockup.svg" alt="InkWitness"></a>
+    <nav aria-label="Main">
+      <a href="review/">Review</a>
+      <a href="write/">Write</a>
+      <a href="https://github.com/RktRobinhood/InkWitness">GitHub</a>
+    </nav>
+  </div>
+</header>
+
 <main>
-  <img class="lockup" src="brand/inkwitness-lockup.svg" alt="InkWitness">
-  <p class="tagline">Every document has a story. <em>Write · Replay · Understand.</em></p>
-
-  <section class="status" aria-labelledby="status-h">
-    <h2 id="status-h">Technical preview (G0). Not for student use.</h2>
-    <p>This site shows that the WordCraft word processor builds to WebAssembly and runs as a static GitHub Pages site under the InkWitness name.</p>
-    <p><strong>None of these are built yet:</strong> student identity, the academic-integrity notice, writing-history recording, the evidence DOCX, and teacher replay. Do not use this site in a lesson or an assessment.</p>
-  </section>
-
-  <div class="routes">
-    <a class="card" href="write/">
-      <img src="brand/inkwitness-write.svg" alt="">
-      <div>
-        <h3>InkWitness Write</h3>
-        <p>Student editor. Right now it is the WordCraft editor with InkWitness branding. Recording and evidence export are not built yet.</p>
+  <div class="hero">
+    <div class="wrap">
+      <h1>See how a piece of writing came together.</h1>
+      <p class="lead">InkWitness is a Word-style editor that records how a document is written. Students hand in one ordinary <strong>.docx</strong>. Teachers open the same file in the browser, replay the writing, and comment on the moments that matter. Nothing is uploaded.</p>
+      <div class="actions">
+        <a class="btn primary" href="review/">Open InkWitness Review</a>
+        <a class="btn secondary" href="write/">Open InkWitness Write</a>
       </div>
-    </a>
-    <a class="card" href="review/">
-      <img src="brand/inkwitness-review.svg" alt="">
-      <div>
-        <h3>InkWitness Review</h3>
-        <p>Teacher reviewer. Right now it opens the same base editor. Replay, the observation rail and diagnostics are not built yet.</p>
-      </div>
-    </a>
+      <p class="hint">New here? Open Review and press <kbd>Try a sample submission</kbd>. The essay and the student are made up.</p>
+      <figure class="shot">
+        <img src="img/review-sample.png" width="1400" height="900" alt="InkWitness Review paused at a pasted passage in the sample essay. The pasted text is highlighted on the page, the AI-style phrase card in the right-hand rail quotes the matched wording, and the replay timeline along the bottom marks each flag with a pin.">
+        <figcaption>The sample submission, replayed to the moment a chatbot answer was pasted in. The flag quotes the wording it matched and leaves the judgement to the teacher.</figcaption>
+      </figure>
+    </div>
   </div>
 
-  <h2 class="section">What V1 will do</h2>
-  <ul>
-    <li>Students write in a familiar Word-like editor in the browser, with local autosave and recovery.</li>
-    <li>The hand-in is <strong>one normal .docx</strong> that opens in Microsoft Word. It carries an embedded, replayable history of how the document was written.</li>
-    <li>Teachers open that same .docx locally on the Review page and replay it. The file is never uploaded.</li>
-    <li>No accounts, no backend, no analytics and no AI-detection scores.</li>
-  </ul>
+  <section>
+    <div class="wrap">
+      <h2>Two pages, one file</h2>
+      <p class="sub">Both pages run entirely in the browser. The student's .docx carries its own writing history, so there is nothing else to collect or store.</p>
+      <div class="routes">
+        <a class="route" href="write/">
+          <img src="brand/inkwitness-write.svg" alt="">
+          <div>
+            <p class="who">For students</p>
+            <h3>InkWitness Write</h3>
+            <p>A full word processor in the browser. Every edit is recorded, and Save writes a normal .docx with the writing history inside it. The file opens in Microsoft Word like any other.</p>
+            <span class="go">Open Write &rarr;</span>
+          </div>
+        </a>
+        <a class="route" href="review/">
+          <img src="brand/inkwitness-review.svg" alt="">
+          <div>
+            <p class="who">For teachers</p>
+            <h3>InkWitness Review</h3>
+            <p>Open a submitted .docx to read it as a page, replay how it was written, look at flagged moments and add your own comments. The file stays on your computer.</p>
+            <span class="go">Open Review &rarr;</span>
+          </div>
+        </a>
+      </div>
+    </div>
+  </section>
 
-  <footer>
-    <p>InkWitness is built on <a href="https://github.com/storytold/wordcraft">WordCraft</a> by the ArtCraft team and the WordCraft contributors (MIT OR Apache-2.0). It is independently developed and is not affiliated with or endorsed by the ArtCraft Team or Microsoft.</p>
-    <p><a href="licenses/">Licenses and notices</a> · <a href="https://github.com/RktRobinhood/InkWitness">Source on GitHub</a></p>
-  </footer>
+  <section>
+    <div class="wrap">
+      <h2>What a teacher can do</h2>
+      <p class="sub">Review is read-only. Nothing you do there changes the student's file.</p>
+      <div class="grid">
+        <div class="feature">
+          <h3>Replay the writing</h3>
+          <p>Play the session at 0.5&times; to 16&times;, skip idle time, step one edit at a time, or drag along the timeline.</p>
+        </div>
+        <div class="feature">
+          <h3>Jump to flagged moments</h3>
+          <p>Pins on the timeline mark pastes, large insertions and deletions, text that was already in the file, and chatbot-style phrases. Hover a pin for details and click it to jump there.</p>
+        </div>
+        <div class="feature">
+          <h3>See the exact text</h3>
+          <p>Each flag shows when it happened, how far into the session, how much changed, and the text involved.</p>
+        </div>
+        <div class="feature">
+          <h3>Comment on the page</h3>
+          <p>Select text and add a comment. Comments sit beside the page like Word comments, and you can edit or remove them.</p>
+        </div>
+        <div class="feature">
+          <h3>Turn a flag into a comment</h3>
+          <p>Promote any flag or edit to a draft comment, filled in from the record. Trim or rewrite it, then save it.</p>
+        </div>
+        <div class="feature">
+          <h3>Download a review copy</h3>
+          <p>Get a .docx of the essay with your comments as Word comments, ready to return to the student or keep on file.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Fair by design</h2>
+      <p class="sub">InkWitness gives teachers a clear account of how a document developed. It does not decide whether a student cheated.</p>
+      <ul class="principles">
+        <li><strong>Flags say what happened, never why.</strong><span>There is no AI-detection score and no verdict. A flag is a reason to look more closely or to talk with the student.</span></li>
+        <li><strong>AI-style phrase flags quote the exact wording.</strong><span>When pasted text contains wording such as &ldquo;As an AI language model&rdquo;, the flag quotes it so you can judge it yourself.</span></li>
+        <li><strong>Files stay on your computer.</strong><span>No accounts, no uploads, no analytics and no third-party scripts. Review reads the file inside your browser.</span></li>
+        <li><strong>Students can see what is recorded.</strong><span>The code is open source, so there are no hidden checks.</span></li>
+        <li><strong>The history is a record, not a signature.</strong><span>Review checks that the recorded history rebuilds the document and says if the file was changed outside InkWitness or the history is damaged. A student controls their own file, so keep the copy that was handed in.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Try it in two minutes</h2>
+      <p class="sub">The sample is a short made-up TOK essay with a pasted quotation and a pasted chatbot answer.</p>
+      <ol class="steps">
+        <li>Open <a href="review/">InkWitness Review</a> and press <kbd>Try a sample submission</kbd>.</li>
+        <li>Hover the star-shaped pin on the timeline, then click it to jump to the pasted passage.</li>
+        <li>Press <kbd>Promote to comment</kbd>, shorten the draft and press <kbd>Save comment</kbd>.</li>
+        <li>Select a few words on the page, press <kbd>+ Add comment</kbd> and save.</li>
+        <li>Press <kbd>Download review copy (.docx)</kbd> and open the file in Word.</li>
+        <li>Press play to watch the essay being written from the start.</li>
+      </ol>
+      <p class="hint">To review a real submission, press <kbd>Open DOCX&hellip;</kbd> in Review or drop the file onto the page.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Good to know</h2>
+      <div class="notes">
+        <ul>
+          <li>Comments stay in the browser tab until you download the review copy. Reloading the page clears them.</li>
+          <li>Write doesn't yet ask for the student's name, show the academic-integrity notice or save automatically, so students should save often. These are being built next.</li>
+          <li>Tested so far in desktop Chromium, the engine behind Chrome and Edge. InkWitness needs a browser with WebGL2.</li>
+          <li>Opening the review copy in desktop Microsoft Word has not been tested yet.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
 </main>
+
+<footer>
+  <div class="wrap">
+    <p>InkWitness is built on <a href="https://github.com/storytold/wordcraft">WordCraft</a> by the ArtCraft team and the WordCraft contributors (MIT OR Apache-2.0). It is independently developed and is not affiliated with or endorsed by the ArtCraft Team or Microsoft.</p>
+    <p><a href="licenses/">Licenses and notices</a> &middot; <a href="https://github.com/RktRobinhood/InkWitness">Source on GitHub</a> &middot; InkWitness code is MIT licensed.</p>
+  </div>
+</footer>
 </body>
 </html>

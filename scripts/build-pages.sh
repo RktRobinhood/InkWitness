@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the static GitHub Pages site:
-#   /           project home (site/index.html)
+#   /           project home (site/index.html, images from site/img/)
 #   /write/     InkWitness Write  } both load one shared WASM bundle from /app/
 #   /review/    InkWitness Review }
 #   /brand/     InkWitness favicons and logos
@@ -30,6 +30,8 @@ rm "$out/app/index.html"
 rm -f "$out/app/.trunk-lock"
 
 cp "$root/site/index.html" "$out/index.html"
+mkdir -p "$out/img"
+cp "$root"/site/img/* "$out/img/"
 
 mkdir -p "$out/brand"
 cp "$root/assets/brand/favicon.svg" "$root/assets/brand/favicon.ico" "$root/assets/brand/apple-touch-icon.png" \

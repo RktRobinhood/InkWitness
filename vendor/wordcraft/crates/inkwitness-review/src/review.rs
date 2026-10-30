@@ -29,7 +29,7 @@ use crate::rail::RailAction;
 pub const MAX_FILE_BYTES: usize = 64 << 20;
 
 /// The text the review page starts with.
-pub const START_TEXT: &str = "InkWitness Review (technical preview). Open a DOCX saved by InkWitness Write: use Open DOCX at the top right, or drop the file on this page. The file stays on this computer.";
+pub const START_TEXT: &str = "InkWitness Review. Open a DOCX saved by InkWitness Write: use Open DOCX at the top right, or drop the file on this page. The file stays on this computer.";
 
 /// What the history in a file says about itself (`AGENTS.md`: local consistency, external
 /// changes and corruption are told apart; none of this is a signature).
