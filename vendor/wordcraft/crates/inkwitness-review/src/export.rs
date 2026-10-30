@@ -100,6 +100,7 @@ pub fn from_shown(shown: &Document, added: &Added, p: &Pos) -> Pos {
 /// named "<file> (reviewed).docx". It carries no edit history.
 pub fn review_copy(l: &Loaded, notes: &[TeacherComment]) -> Result<(String, Vec<u8>), String> {
     let mut doc = l.last.doc.clone();
+    l.with_pictures(&mut doc);
     decorate(&mut doc, &l.last, notes);
     let stem = std::path::Path::new(&l.name).file_stem().and_then(|s| s.to_str()).unwrap_or("submission");
     let name = format!("{stem} (reviewed).docx");

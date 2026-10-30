@@ -13,6 +13,9 @@
 //! ([`wordcraft_engine::Session::set_read_only`]) and the shown document is put back if anything
 //! changes it.
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use serde_json::Value;
 use wordcraft_doc::{Document, Pos, StoryRef};
 use wordcraft_engine::{Selection, Session};
@@ -71,10 +74,25 @@ pub struct Loaded {
     pub consistency: Consistency,
     /// The last event the history replays to (all of them when it is consistent).
     pub replayable: u64,
+    /// Where the writing starts ([`writing_starts`]).
+    pub first: u64,
     /// The shown event's range in the shown state, if it has one.
     pub mark: Option<Resolved>,
     /// The last state the history replays to: teacher comments are anchored in it.
     pub last: State,
+    /// The saved file's pictures, by key. The history records where a picture goes but not the
+    /// picture, so the page takes it from the file ([`Loaded::with_pictures`]).
+    pub media: BTreeMap<String, Arc<Vec<u8>>>,
+}
+
+impl Loaded {
+    /// `doc` (a state of the history) with the saved file's pictures it lacks. A picture removed
+    /// before the save isn't in the file, and stays a blank box.
+    pub fn with_pictures(&self, doc: &mut Document) {
+        for (key, bytes) in &self.media {
+            doc.media.entry(key.clone()).or_insert_with(|| Arc::clone(bytes));
+        }
+    }
 }
 
 /// The review page's state.
@@ -147,7 +165,7 @@ impl Review {
                 let last = l.replayable;
                 self.flags = flags::compute(&l);
                 self.player = Player::default();
-                self.timeline = Timeline::new(l.replay.events(), l.replayable, self.player.skip_idle);
+                self.timeline = Timeline::new(l.replay.events(), l.first, l.replayable, self.player.skip_idle);
                 self.comments.clear();
                 self.draft = None;
                 self.notice = None;
@@ -291,7 +309,7 @@ impl Review {
                 )
                 .show(ui, |ui| dock = player::show(ui, &mut self.player, l, &self.flags, &self.timeline));
             if dock.is_none() && !self.typing {
-                dock = player::shortcuts(ui, self.player.playing, l.state.seq, l.replayable, &flags::moments(&self.flags));
+                dock = player::shortcuts(ui, self.player.playing, l.state.seq, l.first, l.replayable, &flags::moments(&self.flags));
             }
         }
         let mut rail = None;
@@ -321,7 +339,7 @@ impl Review {
     fn play(&mut self, ui: &egui::Ui, app: &mut WordApp) {
         let Some(l) = &self.loaded else { return };
         if self.timeline.skip_idle != self.player.skip_idle {
-            self.timeline = Timeline::new(l.replay.events(), l.replayable, self.player.skip_idle);
+            self.timeline = Timeline::new(l.replay.events(), l.first, l.replayable, self.player.skip_idle);
             self.player.clock = self.timeline.time_of(l.state.seq);
         }
         let now = ui.input(|i| i.time);
@@ -506,6 +524,7 @@ pub fn load(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
     let assessment = entered(evidence.get("assignmentId").and_then(Value::as_str));
     let replay = Replay::from_evidence(&evidence).map_err(|e| format!("{name}: {}", Consistency::Corrupt(e.to_string()).label()))?;
     let start = replay.state_at(0).map_err(|e| format!("{name}: {}", Consistency::Corrupt(e.to_string()).label()))?;
+    let start_digest = start.clone().digest();
     // Replay everything once: the furthest it gets is as far as the reviewer can seek.
     let (consistency, state) = match replay.verify_all() {
         Ok(end) => {
@@ -524,8 +543,29 @@ pub fn load(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
         }
     };
     let replayable = state.seq;
+    let first = writing_starts(replay.events(), &start_digest, replayable);
     let last = state.clone();
-    Ok(Loaded { name: name.to_string(), student, assessment, replay, state, consistency, replayable, mark: None, last })
+    let media = doc.media;
+    Ok(Loaded { name: name.to_string(), student, assessment, replay, state, consistency, replayable, first, mark: None, last, media })
+}
+
+/// Where the writing starts: the last of the events at the start of `events` (up to `upto`) that
+/// open a document or leave it as it was at the start (`start_digest`). Those are the writer
+/// starting up (a blank New, page settings) or the file the student began from; the timeline
+/// and Play start after them, not on an empty page from before the file was opened.
+pub fn writing_starts(events: &[Value], start_digest: &str, upto: u64) -> u64 {
+    let mut digest = start_digest;
+    let mut first = 0;
+    for e in events {
+        let Some(seq) = e.get("seq").and_then(Value::as_u64).filter(|s| *s <= upto) else { break };
+        let d = e.get("documentStateDigest").and_then(Value::as_str).unwrap_or_default();
+        if e.get("type").and_then(Value::as_str) != Some("import_document") && d != digest {
+            break;
+        }
+        first = seq;
+        digest = d;
+    }
+    first
 }
 
 /// A DOCX without an InkWitness history, shown as saved: "History missing", no events.
@@ -540,8 +580,10 @@ fn unrecorded(name: &str, doc: wordcraft_doc::Document) -> Result<Loaded, String
         state: State::unrecorded(doc),
         consistency: Consistency::Missing,
         replayable: 0,
+        first: 0,
         mark: None,
         last: State::unrecorded(doc_last),
+        media: BTreeMap::new(),
     })
 }
 
@@ -557,6 +599,7 @@ pub fn event_range(st: &State, e: &Value) -> Option<Resolved> {
 /// put on the page and the ids its teacher comments have.
 fn show(app: &mut WordApp, l: &Loaded, notes: &[TeacherComment]) -> (Document, crate::export::Added) {
     let mut doc = l.state.doc.clone();
+    l.with_pictures(&mut doc);
     let added = crate::export::decorate(&mut doc, &l.state, notes);
     let mark = l.mark.as_ref().map(|m| (crate::export::to_shown(&doc, &added, &m.start), crate::export::to_shown(&doc, &added, &m.end)));
     app.session.doc = doc.clone();

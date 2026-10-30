@@ -33,7 +33,7 @@ pub const HEIGHT: f32 = 108.0;
 /// Pins closer than this (points) merge into one pin with a count.
 pub const CLUSTER_PX: f32 = 14.0;
 
-/// The replay's time scale: where each event sits, in ms from the start of the session, with
+/// The replay's time scale: where each event sits, in ms from where the writing starts, with
 /// idle gaps squeezed out when Skip idle is on.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Timeline {
@@ -47,18 +47,23 @@ pub struct Timeline {
     pub total: f64,
     /// Whether idle gaps are squeezed out.
     pub skip_idle: bool,
+    /// Where the writing starts ([`crate::review::writing_starts`]): this event and the ones
+    /// before it sit at the start of the scale, and Play starts from it.
+    pub first: u64,
 }
 
 impl Timeline {
-    /// The scale for the first `upto` of `events`.
-    pub fn new(events: &[Value], upto: u64, skip_idle: bool) -> Timeline {
-        let mut t = Timeline { skip_idle, ..Timeline::default() };
+    /// The scale for the first `upto` of `events`, starting at event `first`.
+    pub fn new(events: &[Value], first: u64, upto: u64, skip_idle: bool) -> Timeline {
+        let mut t = Timeline { skip_idle, first, ..Timeline::default() };
         let (mut prev, mut pos) = (0u64, 0.0f64);
-        for e in events.iter().take(usize::try_from(upto).unwrap_or(usize::MAX)) {
+        for (i, e) in events.iter().take(usize::try_from(upto).unwrap_or(usize::MAX)).enumerate() {
             // Never backwards: a missing or earlier time counts as no time at all.
             let ms = e.get("elapsedMonotonicMs").and_then(Value::as_u64).unwrap_or(prev).max(prev);
             let gap = ms - prev;
-            if skip_idle && gap > IDLE_GAP_MS {
+            if (i as u64) < first {
+                // Before the writing starts: takes no room.
+            } else if skip_idle && gap > IDLE_GAP_MS {
                 t.breaks.push(pos + IDLE_PLAYS_AS_MS as f64 / 2.0);
                 pos += IDLE_PLAYS_AS_MS as f64;
             } else {
@@ -72,7 +77,7 @@ impl Timeline {
         t
     }
 
-    /// Event `seq`'s place on the scale (0: before the first event).
+    /// Event `seq`'s place on the scale (0: where the writing starts, or before).
     pub fn time_of(&self, seq: u64) -> f64 {
         seq.checked_sub(1).and_then(|i| self.at.get(usize::try_from(i).ok()?)).copied().unwrap_or(0.0)
     }
@@ -87,7 +92,7 @@ impl Timeline {
         self.real.last().copied().unwrap_or(0)
     }
 
-    /// The last event at or before `t` on the scale (0: none yet).
+    /// The last event at or before `t` on the scale (at least [`Timeline::first`]).
     pub fn seq_at(&self, t: f64) -> u64 {
         u64::try_from(self.at.partition_point(|&x| x <= t)).unwrap_or(0)
     }
@@ -122,13 +127,14 @@ impl Default for Player {
 }
 
 impl Player {
-    /// Start playing from event `seq`. At the end, playback starts over: the event to show first.
+    /// Start playing from event `seq`. At the end, or before the writing starts, playback starts
+    /// where the writing starts: the event to show first.
     pub fn play(&mut self, tl: &Timeline, seq: u64, last: u64) -> Option<u64> {
         self.playing = true;
         self.last_time = None;
-        if seq >= last {
+        if seq >= last || seq < tl.first {
             self.clock = 0.0;
-            return Some(0);
+            return Some(tl.first);
         }
         self.clock = tl.time_of(seq);
         None
@@ -206,15 +212,16 @@ pub fn neighbours(flagged: &[u64], seq: u64) -> (Option<u64>, Option<u64>) {
 }
 
 /// The keyboard shortcuts, when no text field has the keyboard: Space or K plays and pauses,
-/// ← and → step one event, [ and ] go to the previous and next flag.
-pub fn shortcuts(ui: &Ui, playing: bool, seq: u64, last: u64, flagged: &[u64]) -> Option<DockAction> {
+/// ← and → step one event (not back past `first`, where the writing starts), [ and ] go to the
+/// previous and next flag.
+pub fn shortcuts(ui: &Ui, playing: bool, seq: u64, first: u64, last: u64, flagged: &[u64]) -> Option<DockAction> {
     let (prev_flag, next_flag) = neighbours(flagged, seq);
     ui.input_mut(|i| {
         let mut key = |k: Key| i.consume_key(egui::Modifiers::NONE, k);
         if key(Key::Space) || key(Key::K) {
             Some(if playing { DockAction::Pause } else { DockAction::Play })
         } else if key(Key::ArrowLeft) {
-            (seq > 0).then(|| DockAction::Seek(seq - 1))
+            (seq > first).then(|| DockAction::Seek(seq - 1))
         } else if key(Key::ArrowRight) {
             (seq < last).then(|| DockAction::Seek(seq + 1))
         } else if key(Key::OpenBracket) {
@@ -248,7 +255,7 @@ pub fn show(ui: &mut Ui, player: &mut Player, l: &Loaded, flags: &[Flag], tl: &T
         };
         let mut pressed = [
             go(ui, "replayRewind", "Previous flag", "Previous flag  [", prev_flag),
-            go(ui, "mediaPrev", "Previous event", "Previous event  ←", (seq > 0).then(|| seq - 1)),
+            go(ui, "mediaPrev", "Previous event", "Previous event  ←", (seq > tl.first).then(|| seq - 1)),
             play_button(ui, player.playing, &t, &a).then_some(if player.playing { DockAction::Pause } else { DockAction::Play }),
         ]
         .to_vec();
@@ -525,7 +532,7 @@ mod tests {
     #[test]
     fn skip_idle_squeezes_long_pauses_and_keeps_the_real_time() {
         let ev = events(&[100, 300, 60_300, 60_400]);
-        let tl = Timeline::new(&ev, 4, true);
+        let tl = Timeline::new(&ev, 0, 4, true);
         assert_eq!(tl.time_of(0), 0.0);
         assert_eq!(tl.time_of(2), 300.0);
         // The minute's pause plays as half a second.
@@ -533,7 +540,7 @@ mod tests {
         assert_eq!(tl.breaks.len(), 1);
         assert_eq!(tl.real_of(3), 60_300);
         assert_eq!(tl.real_total(), 60_400);
-        let full = Timeline::new(&ev, 4, false);
+        let full = Timeline::new(&ev, 0, 4, false);
         assert_eq!(full.time_of(3), 60_300.0);
         assert!(full.breaks.is_empty());
         assert_eq!(tl.seq_at(0.0), 0);
@@ -544,7 +551,7 @@ mod tests {
     #[test]
     fn playback_runs_at_speed_steps_at_most_fifteen_times_a_second_and_stops_at_flags() {
         let ev = events(&[100, 200, 300, 400, 500, 600]);
-        let tl = Timeline::new(&ev, 6, true);
+        let tl = Timeline::new(&ev, 0, 6, true);
         let mut p = Player { speed: 1.0, ..Player::default() };
         assert_eq!(p.play(&tl, 0, 6), None);
         assert_eq!(p.tick(0.0, &tl, 0, 6, &[]), None, "no time has passed");
@@ -562,6 +569,22 @@ mod tests {
         assert!(!p.playing, "stops at the end");
         // From the end, Play starts over.
         assert_eq!(p.play(&tl, 6, 6), Some(0));
+    }
+
+    #[test]
+    fn the_scale_starts_where_the_writing_starts() {
+        // Events 1 and 2 are the writer starting up; the writing starts after event 2.
+        let ev = events(&[1_276, 1_279, 2_545, 2_692, 60_000]);
+        let tl = Timeline::new(&ev, 2, 5, true);
+        assert_eq!((tl.time_of(1), tl.time_of(2)), (0.0, 0.0));
+        assert_eq!(tl.time_of(3), 1_266.0);
+        assert_eq!(tl.seq_at(0.0), 2);
+        // The real time still counts from the start of the session.
+        assert_eq!(tl.real_of(3), 2_545);
+        let mut p = Player::default();
+        assert_eq!(p.play(&tl, 5, 5), Some(2), "Play from the end starts over at the writing");
+        assert_eq!(p.play(&tl, 1, 5), Some(2));
+        assert_eq!(p.play(&tl, 3, 5), None);
     }
 
     #[test]
