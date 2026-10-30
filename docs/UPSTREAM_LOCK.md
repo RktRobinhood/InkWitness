@@ -69,6 +69,8 @@ Keep this list current. Every change to `vendor/wordcraft/` must be listed here 
 | `crates/ui-egui/src/lib.rs` | `WordApp::viewer_ribbon`: with `viewer_chrome`, the ribbon is drawn above the panes; `viewer_allows` takes whether it is shown and then lets `ui.tab` switch tabs (never to File) | FAL-547: the review page's Full ribbon switch. Off by default |
 | `crates/ui-egui/src/ribbon.rs` | With `viewer_chrome`, no File tab and no Share, Editing or Comments button in the tab strip | Same |
 | `crates/ui-egui/src/widgets.rs` | `enabled`: what a viewer refuses (`viewer_allows`) shows greyed out | Same |
+| `crates/ui-egui/src/lib.rs` | `viewer_allows` refuses every `file.*` command, Track Changes and its options, Accept and Reject, Restrict Editing, Compare, Combine, and the document-comment commands | FAL-547: teacher edits. A viewer that lets its reviewer edit keeps every change tracked and never saves the reviewed file |
+| `crates/inkwitness-review/` | New `edits.rs` (the teacher's edits and `Map` between the student's final document and the edited one); `review.rs` makes the page editable while the teacher edits, `rail.rs` adds the "Your edits" card, `export.rs` places comments and highlights through the map and writes the edits into the review copy | Same |
 
 Not yet rebranded (tracked as a follow-up): the Help-tab keytip and the `ui.discord` command, Options and default-app strings, `web.rs` start-up error text, the sample document link, and generator metadata in `crates/docx` (`Application`), `crates/pdf` and `crates/formats/src/latex.rs`.
 

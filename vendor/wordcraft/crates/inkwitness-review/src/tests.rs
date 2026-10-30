@@ -591,7 +591,7 @@ fn comments_on_selected_text_go_into_the_review_copy() {
     let quotes: Vec<&str> = review.comments.iter().filter_map(|c| c.anchor.as_ref().map(|a| a.quote.as_str())).collect();
     assert_eq!(quotes, ["two honest accounts", "the same event"]);
     let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
-    let (copy, out) = crate::export::review_copy(l, &review.comments).unwrap_or_else(|e| panic!("{e}"));
+    let (copy, out) = crate::export::review_copy(l, &review.comments, None).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(copy, "Example Student - TOK essay (sample) (reviewed).docx");
     let doc = wordcraft_engine::io::open_bytes(&copy, &out).unwrap_or_else(|e| panic!("{e}"));
     let mut found: Vec<String> = doc.comments.keys().filter_map(|id| commented(&doc, *id)).collect();
@@ -691,7 +691,7 @@ fn pictures_come_from_the_saved_file() {
     assert_eq!(shown(&app), Some(PNG.to_vec()), "and still does when the reviewer comes back to it");
 
     let l = review.loaded.as_ref().unwrap_or_else(|| panic!("no file"));
-    let (name, copy) = crate::export::review_copy(l, &[]).unwrap_or_else(|e| panic!("{e}"));
+    let (name, copy) = crate::export::review_copy(l, &[], None).unwrap_or_else(|e| panic!("{e}"));
     let reopened = wordcraft_engine::io::open_bytes(&name, &copy).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(reopened.media.values().map(|b| b.to_vec()).collect::<Vec<_>>(), vec![PNG.to_vec()], "the review copy has it");
 }
@@ -761,7 +761,7 @@ fn highlights_are_painted_on_the_page_and_go_into_the_review_copy() {
 
     // The review copy has Word highlights, and no comment for them.
     let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
-    let (copy, out) = crate::export::review_copy(l, &review.comments).unwrap_or_else(|e| panic!("{e}"));
+    let (copy, out) = crate::export::review_copy(l, &review.comments, None).unwrap_or_else(|e| panic!("{e}"));
     let doc = wordcraft_engine::io::open_bytes(&copy, &out).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(highlight_of(&doc, "two honest accounts"), Some(Highlight::Turquoise));
     assert_eq!(highlight_of(&doc, "the same event"), Some(Highlight::Yellow));
@@ -773,7 +773,7 @@ fn highlights_are_painted_on_the_page_and_go_into_the_review_copy() {
     review.rail(&mut app, crate::rail::RailAction::Delete(id));
     assert_eq!(app.canvas.review_highlights.len(), 1);
     let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
-    let (copy, out) = crate::export::review_copy(l, &review.comments).unwrap_or_else(|e| panic!("{e}"));
+    let (copy, out) = crate::export::review_copy(l, &review.comments, None).unwrap_or_else(|e| panic!("{e}"));
     let doc = wordcraft_engine::io::open_bytes(&copy, &out).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(highlight_of(&doc, "two honest accounts"), None);
 
@@ -844,4 +844,235 @@ fn the_toolbar_highlights_comments_and_shows_the_full_ribbon() {
     step(&mut h);
     assert!(!h.state().1.viewer_ribbon);
     assert_eq!(labelled(&h, "Insert"), 0, "the ribbon is hidden again");
+}
+
+/// The text from `a` to `b` in one paragraph of `doc`, without inline objects (comment marks).
+fn text_in(doc: &Document, a: &wordcraft_doc::Pos, b: &wordcraft_doc::Pos) -> String {
+    assert_eq!(a.path, b.path, "one paragraph");
+    let para = doc.para_at(a).unwrap_or_else(|| panic!("no paragraph at {a:?}"));
+    para.text.get(a.off..b.off).unwrap_or_default().replace(wordcraft_doc::para::OBJ, "")
+}
+
+/// The run properties of `word`'s first occurrence in `doc`'s body.
+fn props_of(doc: &Document, word: &str) -> wordcraft_doc::CharProps {
+    doc.body
+        .iter()
+        .find_map(|b| b.as_para().and_then(|p| p.text.find(word).map(|at| p.props_of_char(at).clone())))
+        .unwrap_or_else(|| panic!("{word} isn't in the document"))
+}
+
+/// FAL-547 part 4: with Full ribbon on and their name typed, the teacher edits the final document.
+/// Every change is a tracked change in their name. Their comments and highlights stay on the
+/// student's text around the edits. Stepping back shows the student's text, read-only; the end
+/// shows the edits again. The review copy has them as tracked changes; the student's file is
+/// untouched.
+#[test]
+fn teacher_edits_are_tracked_changes_in_their_name() {
+    use wordcraft_doc::props::Highlight;
+    let (name, bytes) = crate::sample::docx();
+    let mut app = review_app();
+    crate::toolbar::setup(&mut app);
+    let mut review = Review::default();
+    review.open(&mut app, &name, &bytes);
+    let last = review.loaded.as_ref().map_or(0, |l| l.replayable);
+    review.go(&mut app, last);
+    review.logic(&mut app);
+    // The teacher's marks, made before editing.
+    select_word(&mut app, "the same event");
+    review.highlight_here(&mut app, Highlight::Yellow);
+    select_word(&mut app, "two honest accounts");
+    review.comment_here(&mut app);
+    if let Some(d) = review.draft.as_mut() {
+        d.text = "Which two?".into();
+    }
+    review.save_draft();
+    review.logic(&mut app);
+
+    // Full ribbon on, but no name yet: nothing can be changed.
+    crate::toolbar::set_ribbon(&mut app, true);
+    review.logic(&mut app);
+    assert!(!review.editing(&app));
+    select_word(&mut app, "honest");
+    assert!(app.run("text.insert", json!({"text": "truthful"})).is_err(), "edits wait for the teacher's name");
+
+    // The name typed: edits are tracked changes in it.
+    review.set_teacher(&mut app, "  Ms Rivera ");
+    assert!(review.editing(&app) && !app.session.read_only());
+    select_word(&mut app, "honest");
+    run(&mut app, "text.insert", json!({"text": "truthful"}));
+    review.logic(&mut app);
+    // A paragraph split before the highlight, and a deletion after it.
+    select_word(&mut app, "of the same");
+    let at = app.session.sel.ordered().0;
+    app.session.sel = wordcraft_engine::Selection::caret(at);
+    run(&mut app, "text.newParagraph", json!({}));
+    review.logic(&mut app);
+    select_word(&mut app, "can disagree");
+    let end = app.session.sel.ordered().1;
+    app.session.sel = wordcraft_engine::Selection::caret(end);
+    run(&mut app, "text.backspace", json!({}));
+    review.logic(&mut app);
+
+    let edits = review.edits.as_ref().unwrap_or_else(|| panic!("edits kept"));
+    assert!(edits.changed());
+    assert!(!edits.doc.revisions.is_empty() && edits.doc.revisions.iter().all(|r| r.author == "Ms Rivera"), "{:?}", edits.doc.revisions);
+    assert!(edits.doc.comments.is_empty(), "the page's teacher comments aren't part of the edits");
+    let shown = edits.doc.final_text(StoryRef::Body);
+    assert!(shown.contains("two truthful") && !shown.contains("honest"), "{shown}");
+    assert!(edits.doc.plain_text(StoryRef::Body).contains("honest"), "a tracked deletion keeps its text");
+    assert!(props_of(&edits.doc, "truthful").ins.is_some() && props_of(&edits.doc, "honest").del.is_some());
+    // The highlight is still painted on its text, now in the paragraph the teacher split off.
+    let (a, b, _) = app.canvas.review_highlights.first().cloned().unwrap_or_else(|| panic!("painted"));
+    assert_eq!(text_in(&app.session.doc, &a, &b), "the same event");
+
+    // New marks at the end, on the student's text and on the teacher's own.
+    select_word(&mut app, "can disagre");
+    review.highlight_here(&mut app, Highlight::BrightGreen);
+    assert_eq!(review.comments.last().and_then(|c| c.anchor.as_ref()).map(|x| x.quote.as_str()), Some("can disagre"));
+    let marks = review.comments.len();
+    select_word(&mut app, "truthful");
+    review.highlight_here(&mut app, Highlight::Pink);
+    assert_eq!(review.comments.len(), marks, "the teacher's own text isn't the student's");
+
+    // What the ribbon can't do while editing.
+    for (id, p) in [
+        ("file.save", json!({})),
+        ("review.trackChanges", json!({"value": false})),
+        ("review.acceptAll", json!({})),
+        ("review.rejectAll", json!({})),
+        ("review.deleteComment", json!({})),
+    ] {
+        let r = app.run(id, p.clone());
+        assert!(r.is_err(), "{id} ran while the teacher was editing: {r:?}");
+    }
+
+    // A change made around the tracking (the student's text changed untracked) is undone.
+    let before = review.edits.as_ref().map(|e| e.doc.clone()).unwrap_or_default();
+    select_word(&mut app, "historian");
+    let (a, b) = app.session.sel.ordered();
+    let _ = app.session.doc.delete_range(&a, &b);
+    review.logic(&mut app);
+    assert!(app.session.doc.plain_text(StoryRef::Body).contains("historian"), "the untracked deletion was undone");
+    assert!(review.edits.as_ref().is_some_and(|e| e.doc.same_content(&before)), "and isn't part of the edits");
+    assert!(review.edit_note.is_some());
+
+    // Stepping back: the student's text, read-only. The end: the edits again.
+    review.go(&mut app, 1);
+    assert!(!review.editing(&app) && app.session.read_only());
+    assert!(!app.session.doc.plain_text(StoryRef::Body).contains("truthful"));
+    assert!(app.run("text.insert", json!({"text": "x"})).is_err());
+    review.go(&mut app, last);
+    review.logic(&mut app);
+    assert!(review.editing(&app));
+    assert!(app.session.doc.plain_text(StoryRef::Body).contains("truthful"));
+    assert_eq!(app.canvas.review_highlights.len(), 2);
+    assert!(!app.session.can_undo(), "Undo never brings back another moment's document");
+
+    // The review copy: the edits as tracked changes, the comment and highlights on the student's
+    // text, no history, and Word not left tracking the student's next changes.
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
+    let (copy, out) = crate::export::review_copy(l, &review.comments, review.edits.as_ref()).unwrap_or_else(|e| panic!("{e}"));
+    let doc = wordcraft_engine::io::open_bytes(&copy, &out).unwrap_or_else(|e| panic!("{e}"));
+    assert!(doc.revisions.iter().any(|r| r.author == "Ms Rivera"));
+    assert!(props_of(&doc, "truthful").ins.is_some() && props_of(&doc, "honest").del.is_some());
+    assert_eq!(doc.comments.len(), 1);
+    assert!(
+        doc.body.iter().any(|b| b.as_para().is_some_and(|p| p.text.contains(&format!("{}two ", wordcraft_doc::para::OBJ)))),
+        "the comment starts on its text"
+    );
+    assert_eq!(highlight_of(&doc, "the same event"), Some(Highlight::Yellow));
+    assert_eq!(highlight_of(&doc, "can disagre"), Some(Highlight::BrightGreen));
+    assert!(matches!(wordcraft_inkwitness::envelope::extract(&doc), Ok(None)), "the review copy carries no student history");
+    assert!(!doc.settings.track_changes);
+
+    // The student's file is what it was.
+    let again = super::review::load(&name, &bytes).unwrap_or_else(|e| panic!("{e}"));
+    assert!(!again.last.doc.plain_text(StoryRef::Body).contains("truthful"));
+}
+
+/// FAL-547 part 4: the map between the student's final document and the teacher's edited one
+/// finds every character of the student's again, through insertions, deletions, a split and a
+/// joined paragraph, and leaves the teacher's insertions out.
+#[test]
+fn the_edit_map_finds_the_students_text() {
+    use crate::edits::{Edits, Map};
+    let (name, bytes) = crate::sample::docx();
+    let l = super::review::load(&name, &bytes).unwrap_or_else(|e| panic!("{e}"));
+    let student = l.last.doc.clone();
+    let mut s = Session::new(Edits::new(student.clone()).doc);
+    s.author = "T".into();
+    let caret = |s: &mut Session, k: u32, off: usize| {
+        s.sel = wordcraft_engine::Selection::caret(wordcraft_doc::Pos::new(StoryRef::Body, wordcraft_doc::Path(vec![k]), off))
+    };
+    caret(&mut s, 0, 3);
+    s.run("text.insert", &json!({"text": "ADDED"})).unwrap_or_else(|e| panic!("{e}"));
+    caret(&mut s, 1, 5);
+    s.run("text.newParagraph", &json!({})).unwrap_or_else(|e| panic!("{e}"));
+    caret(&mut s, 0, 0);
+    s.run("text.delete", &json!({})).unwrap_or_else(|e| panic!("{e}"));
+    let last = s.doc.body.len() - 1;
+    let len = s.doc.body.get(last - 1).and_then(|b| b.as_para()).map_or(0, |p| p.text.len());
+    caret(&mut s, u32::try_from(last - 1).unwrap_or(0), len);
+    s.run("text.delete", &json!({})).unwrap_or_else(|e| panic!("{e}"));
+    let mut edits = Edits::new(student.clone());
+    edits.doc = s.doc.clone();
+    assert!(edits.changed());
+    let map = Map::new(&student, &edits).unwrap_or_else(|| panic!("the student's text is all still there"));
+    for path in student.para_paths(StoryRef::Body) {
+        let Some(para) = student.para(StoryRef::Body, &path) else { continue };
+        for (off, c) in para.text.char_indices() {
+            let p = wordcraft_doc::Pos::new(StoryRef::Body, path.clone(), off);
+            let e = map.to_edited(&p, false);
+            let got = edits.doc.para_at(&e).and_then(|q| q.text.get(e.off..)).and_then(|t| t.chars().next());
+            assert_eq!(got, Some(c), "{p:?} → {e:?}");
+            assert_eq!(map.to_student(&e), p, "and back");
+        }
+    }
+    // A position in the teacher's insertion is the student's next character.
+    let inside = wordcraft_doc::Pos::new(StoryRef::Body, wordcraft_doc::Path(vec![0]), 5);
+    assert_eq!(map.to_student(&inside), wordcraft_doc::Pos::new(StoryRef::Body, wordcraft_doc::Path(vec![0]), 3));
+    // A range ending right before the insertion doesn't take it in.
+    let a = wordcraft_doc::Pos::new(StoryRef::Body, wordcraft_doc::Path(vec![0]), 0);
+    let b = wordcraft_doc::Pos::new(StoryRef::Body, wordcraft_doc::Path(vec![0]), 3);
+    let (ea, eb) = crate::edits::place(Some(&map), &a, &b);
+    assert_eq!(text_in(&edits.doc, &ea, &eb), student.para_at(&a).and_then(|p| p.text.get(0..3)).unwrap_or_default());
+    // Untouched: the same positions.
+    let same = Map::new(&student, &Edits::new(student.clone())).unwrap_or_else(|| panic!("map"));
+    assert_eq!(same.to_edited(&b, false), b);
+}
+
+/// FAL-547 part 4, on the page: Full ribbon shows the "Your edits" card; the name typed there
+/// starts editing (the toolbar says so) and the arrow keys then move the caret, not the replay.
+/// Change name stops editing.
+#[test]
+fn the_rail_takes_the_teachers_name_and_starts_editing() {
+    use egui_kittest::kittest::Queryable;
+    let (name, bytes) = crate::sample::docx();
+    let mut h = review_page(Some((&name, &bytes)));
+    let step = |h: &mut egui_kittest::Harness<'static, (Review, WordApp)>| {
+        for _ in 0..4 {
+            h.step();
+        }
+    };
+    step(&mut h);
+    assert_eq!(labelled(&h, "Your name"), 0, "no editing without Full ribbon");
+    h.get_by_label("Full ribbon").click();
+    step(&mut h);
+    h.get_by_label("Your name").focus();
+    step(&mut h);
+    h.get_by_label("Your name").type_text("Ms Rivera");
+    step(&mut h);
+    h.get_by_label("Start editing").click();
+    step(&mut h);
+    assert_eq!(h.state().0.teacher, "Ms Rivera");
+    assert!(h.state().0.editing(&h.state().1));
+    assert!(h.query_all_by_label_contains("Editing as Ms Rivera").count() >= 1, "the toolbar says who is editing");
+    let at = h.state().0.loaded.as_ref().map_or(0, |l| l.state.seq);
+    h.key_press(egui::Key::ArrowLeft);
+    step(&mut h);
+    assert_eq!(h.state().0.loaded.as_ref().map_or(0, |l| l.state.seq), at, "the arrow keys move the caret while editing");
+    h.get_by_label("Change name").click();
+    step(&mut h);
+    assert!(!h.state().0.editing(&h.state().1));
+    assert!(h.state().1.session.read_only());
 }

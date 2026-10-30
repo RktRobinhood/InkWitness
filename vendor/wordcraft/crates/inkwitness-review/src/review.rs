@@ -11,7 +11,10 @@
 //! Nothing is uploaded: the file arrives through the app's inbox (the browser's file picker or a
 //! drop) and stays in memory. The student's file is never written: the session is view-only
 //! ([`wordcraft_engine::Session::set_read_only`]) and the shown document is put back if anything
-//! changes it.
+//! changes it. The one exception is the teacher's own edits ([`crate::edits`]): with Full ribbon
+//! on, their name typed and the end of the history shown, the page is an editor whose every
+//! change is a tracked change in their name, kept in a copy that only the review copy is made
+//! from.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -24,9 +27,13 @@ use wordcraft_inkwitness::replay::{Replay, ReplayError, Resolved, State};
 use wordcraft_ui_egui::WordApp;
 
 use crate::comments::{self, Draft, TeacherComment};
+use crate::edits::{Edits, Map};
 use crate::flags::{self, Flag};
 use crate::player::{self, DockAction, Player, Timeline};
 use crate::rail::RailAction;
+
+/// The browser's key for the teacher's name.
+pub const NAME_KEY: &str = "inkwitness.review.teacherName";
 
 /// Largest file the review page reads.
 pub const MAX_FILE_BYTES: usize = 64 << 20;
@@ -123,6 +130,19 @@ pub struct Review {
     shown: Option<Document>,
     /// The comment ids the teacher's comments have on the page ([`crate::export::decorate`]).
     added: crate::export::Added,
+    /// The teacher's edits to the final document, once they started editing. In memory only.
+    pub edits: Option<Edits>,
+    /// Positions of the shown state on the teacher's edited document, when that is shown.
+    map: Option<Map>,
+    /// The teacher's name, for their tracked changes (empty: not typed yet). This browser
+    /// remembers it.
+    pub teacher: String,
+    /// The name being typed in the rail.
+    pub name_draft: String,
+    /// The remembered name was read.
+    name_read: bool,
+    /// Why the teacher's last change was undone ([`Review::take_edit`]).
+    pub edit_note: Option<String>,
     /// Which list the rail shows under the moment shown.
     pub tab: RailTab,
     /// A short message for the reviewer (a download started, or couldn't).
@@ -169,6 +189,7 @@ impl Review {
                 self.player = Player::default();
                 self.timeline = Timeline::new(l.replay.events(), l.first, l.replayable, self.player.skip_idle);
                 self.comments.clear();
+                self.edits = None;
                 self.draft = None;
                 self.notice = None;
                 self.tab = RailTab::Flags;
@@ -204,14 +225,73 @@ impl Review {
         self.put(app);
     }
 
-    /// Put the shown state, with the teacher's comments and highlights, on the page.
+    /// Put the shown state, with the teacher's comments and highlights, on the page: at the end
+    /// of the history, with the teacher's edits. The page can be edited only while the teacher is
+    /// editing ([`Review::editing`]).
     fn put(&mut self, app: &mut WordApp) {
+        let editing = self.editing(app);
         if let Some(l) = &self.loaded {
-            let (doc, added) = show(app, l, &self.comments);
+            if editing && self.edits.is_none() {
+                let mut doc = l.last.doc.clone();
+                l.with_pictures(&mut doc);
+                self.edits = Some(Edits::new(doc));
+            }
+            let edits = self.edits.as_ref().filter(|_| l.state.seq == l.replayable);
+            self.map = edits.and_then(|e| Map::new(&l.state.doc, e));
+            let (doc, added) = show(app, l, edits, self.map.as_ref(), &self.comments);
             self.shown = Some(doc);
             self.added = added;
         }
+        app.session.set_read_only(!editing);
+        if editing {
+            app.session.author = self.teacher.trim().to_string();
+        }
+        // Undo never brings back another moment's document.
+        app.session.reset_history();
         self.paint_highlights(app);
+    }
+
+    /// Whether the teacher is editing: Full ribbon on, their name typed, and the last recorded
+    /// moment shown. Edits apply to the final document only.
+    pub fn editing(&self, app: &WordApp) -> bool {
+        app.viewer_ribbon && !self.teacher.trim().is_empty() && self.loaded.as_ref().is_some_and(|l| l.state.seq == l.replayable)
+    }
+
+    /// Keep what the teacher changed on the page as their edits: the page's document without the
+    /// teacher comments drawn on it. A change that leaves the student's text unmatched (it wasn't
+    /// tracked) is undone, so comments and highlights never land on the wrong text.
+    fn take_edit(&mut self, app: &mut WordApp) {
+        let (Some(l), Some(edits)) = (&self.loaded, &mut self.edits) else { return self.put(app) };
+        let mut next = edits.clone();
+        next.doc = app.session.doc.clone();
+        crate::export::undecorate(&mut next.doc, &self.added);
+        let Some(map) = Map::new(&l.state.doc, &next) else {
+            self.edit_note = Some("That change couldn't be kept as a tracked change, so it was undone.".into());
+            return self.put(app);
+        };
+        *edits = next;
+        self.map = Some(map);
+        self.edit_note = None;
+        self.shown = Some(app.session.doc.clone());
+        // The edits are in memory, like the comments: there is nothing to save.
+        app.session.dirty = false;
+        self.paint_highlights(app);
+    }
+
+    /// Position `p` on the page, in the shown state.
+    fn in_state(&self, p: &Pos) -> Pos {
+        let p = self.shown.as_ref().map_or_else(|| p.clone(), |d| crate::export::from_shown(d, &self.added, p));
+        self.map.as_ref().map_or_else(|| p.clone(), |m| m.to_student(&p))
+    }
+
+    /// Remember the teacher's name in this browser; editing starts if Full ribbon is on and the
+    /// end is shown.
+    pub fn set_teacher(&mut self, app: &mut WordApp, name: &str) {
+        self.teacher = name.trim().to_string();
+        self.name_draft = self.teacher.clone();
+        #[cfg(target_arch = "wasm32")]
+        crate::web::store(NAME_KEY, &self.teacher);
+        self.put(app);
     }
 
     /// Paint the teacher's highlights that can be found in the shown state over their text. The
@@ -222,6 +302,7 @@ impl Review {
         for c in &self.comments {
             let (Some(h), Some(anchor)) = (c.highlight, &c.anchor) else { continue };
             let Some((a, b)) = comments::locate(&l.state, anchor) else { continue };
+            let (a, b) = crate::edits::place(self.map.as_ref(), &a, &b);
             let (a, b) = (crate::export::to_shown(shown, &self.added, &a), crate::export::to_shown(shown, &self.added, &b));
             app.canvas.review_highlights.push((a, b, crate::toolbar::page_colour(h)));
         }
@@ -243,9 +324,8 @@ impl Review {
             self.notice = Some("Select text on the page first, then press Highlight.".into());
             return;
         }
-        let on_page = |p: &Pos| self.shown.as_ref().map_or_else(|| p.clone(), |d| crate::export::from_shown(d, &self.added, p));
         let (a, b) = app.session.sel.ordered();
-        let placed = comments::anchor_forward(&l.state, &l.last, &on_page(&a), &on_page(&b));
+        let placed = comments::anchor_forward(&l.state, &l.last, &self.in_state(&a), &self.in_state(&b));
         let Some((anchor, false)) = placed.filter(|(x, _)| !x.quote.trim().is_empty()) else {
             self.notice = Some("This text isn't in the final document, so it can't be highlighted. Add a comment on it instead.".into());
             return;
@@ -275,10 +355,26 @@ impl Review {
 
     /// Per frame, before the app's own logic: take new files, and put the shown document back
     /// if anything changed it (the session refuses edits; a change made around it is undone).
+    /// While the teacher is editing, a change is theirs: it is kept as their edits.
     pub fn logic(&mut self, app: &mut WordApp) {
         self.take_files(app);
-        if self.loaded.is_some() && self.shown.as_ref().is_none_or(|d| !app.session.doc.same_content(d)) {
+        if !self.name_read {
+            self.name_read = true;
+            #[cfg(target_arch = "wasm32")]
+            {
+                self.teacher = crate::web::stored(NAME_KEY).unwrap_or_default();
+                self.name_draft = self.teacher.clone();
+            }
+        }
+        if self.loaded.is_none() {
+            return;
+        }
+        let editing = self.editing(app);
+        if editing == app.session.read_only() {
+            // Full ribbon, the name or the moment shown changed whether the page can be edited.
             self.put(app);
+        } else if self.shown.as_ref().is_none_or(|d| !app.session.doc.same_content(d)) {
+            if editing && self.shown.is_some() { self.take_edit(app) } else { self.put(app) }
         }
     }
 
@@ -348,7 +444,9 @@ impl Review {
             return;
         }
         let mut colour = self.highlight_colour();
-        let tool = crate::toolbar::show(ui, app, self.loaded.is_some(), &mut colour);
+        let editing = self.editing(app);
+        let name = editing.then(|| self.teacher.clone());
+        let tool = crate::toolbar::show(ui, app, self.loaded.is_some(), name.as_deref(), &mut colour);
         self.colour = colour;
         let t = wordcraft_ui_egui::theme::Tokens::get(ui.ctx());
         let a = wordcraft_ui_egui::theme::critic::Accents::get(ui.ctx());
@@ -367,7 +465,8 @@ impl Review {
                         .stroke(egui::Stroke::new(1.0, t.border)),
                 )
                 .show(ui, |ui| dock = player::show(ui, &mut self.player, l, &self.flags, &self.timeline));
-            if dock.is_none() && !self.typing {
+            // While the teacher is editing, the keys move the caret, not the replay.
+            if dock.is_none() && !self.typing && !editing {
                 dock = player::shortcuts(ui, self.player.playing, l.state.seq, l.first, l.replayable, &flags::moments(&self.flags));
             }
         }
@@ -474,6 +573,14 @@ impl Review {
                     open("document");
                 }
             }
+            RailAction::SetName => {
+                let name = self.name_draft.clone();
+                self.set_teacher(app, &name);
+            }
+            RailAction::ChangeName => {
+                self.teacher.clear();
+                self.put(app);
+            }
         }
     }
 
@@ -482,12 +589,11 @@ impl Review {
     pub fn comment_here(&mut self, app: &mut WordApp) {
         let Some(l) = &self.loaded else { return };
         self.player.pause();
-        let on_page = |p: &Pos| self.shown.as_ref().map_or_else(|| p.clone(), |d| crate::export::from_shown(d, &self.added, p));
         let (start, end) = match (&l.mark, app.session.sel.is_collapsed()) {
             (Some(m), true) => (m.start.clone(), m.end.clone()),
             _ => {
                 let (a, b) = app.session.sel.ordered();
-                (on_page(&a), on_page(&b))
+                (self.in_state(&a), self.in_state(&b))
             }
         };
         let placed = comments::anchor_forward(&l.state, &l.last, &start, &end);
@@ -561,7 +667,7 @@ impl Review {
     /// Download a review copy with the teacher's comments and highlights ([`crate::export`]).
     pub fn export(&mut self, app: &mut WordApp) {
         let Some(l) = &self.loaded else { return };
-        self.notice = Some(match crate::export::review_copy(l, &self.comments) {
+        self.notice = Some(match crate::export::review_copy(l, &self.comments, self.edits.as_ref()) {
             Ok((name, bytes)) => match &app.services.download {
                 Some(download) => match download(&name, &bytes) {
                     Ok(()) => format!("Downloading {name}. The student's file is unchanged."),
@@ -662,14 +768,18 @@ pub fn event_range(st: &State, e: &Value) -> Option<Resolved> {
     st.resolve(e.get("afterAnchor")?, Some(&window))
 }
 
-/// Put the loaded state on the page: the document with the teacher's comments that can be found
-/// in it, the highlight, the caret at its start and the view following it. Returns the document
-/// put on the page and the ids its teacher comments have.
-fn show(app: &mut WordApp, l: &Loaded, notes: &[TeacherComment]) -> (Document, crate::export::Added) {
-    let mut doc = l.state.doc.clone();
+/// Put the loaded state on the page: the document (the teacher's `edits` of it, placed with
+/// `map`, at the end) with the teacher's comments that can be found in it, the highlight, the
+/// caret at its start and the view following it. Returns the document put on the page and the
+/// ids its teacher comments have.
+fn show(app: &mut WordApp, l: &Loaded, edits: Option<&Edits>, map: Option<&Map>, notes: &[TeacherComment]) -> (Document, crate::export::Added) {
+    let mut doc = edits.map_or_else(|| l.state.doc.clone(), |e| e.doc.clone());
     l.with_pictures(&mut doc);
-    let added = crate::export::decorate(&mut doc, &l.state, notes);
-    let mark = l.mark.as_ref().map(|m| (crate::export::to_shown(&doc, &added, &m.start), crate::export::to_shown(&doc, &added, &m.end)));
+    let added = crate::export::decorate(&mut doc, &l.state, notes, map);
+    let mark = l.mark.as_ref().map(|m| {
+        let (a, b) = crate::edits::place(map, &m.start, &m.end);
+        (crate::export::to_shown(&doc, &added, &a), crate::export::to_shown(&doc, &added, &b))
+    });
     app.session.doc = doc.clone();
     app.session.touch();
     app.session.dirty = false;
