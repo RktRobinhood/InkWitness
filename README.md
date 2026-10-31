@@ -48,8 +48,9 @@ To review a real submission, press **Open DOCX…** or drop the file onto the pa
 | **Teacher comments** | Select text on the page and add a comment. Comments appear beside the page like Word comments, and you can edit or remove them. The student's file is never changed. |
 | **Highlights** | Select text and press **Highlight**, in yellow, green, blue or pink. Highlights are listed with your comments and can be removed. |
 | **Promote to comment** | Turn any flag or edit into a draft comment, filled in from the record. Trim or rewrite it, then save it. |
-| **Review copy** | Download a `.docx` of the essay with your comments as Word comments and your highlights as Word highlights. |
-| **Toolbar or full ribbon** | A slim viewer toolbar by default. The **Full ribbon** switch shows WordCraft's ribbon as well, and the browser remembers your choice. Editing from the ribbon is not available yet. |
+| **Review copy** | Download a `.docx` of the essay with your comments as Word comments, your highlights as Word highlights and your edits as Word tracked changes. |
+| **Toolbar or full ribbon** | A slim viewer toolbar by default. The **Full ribbon** switch shows WordCraft's ribbon as well, and the browser remembers your choice. |
+| **Teacher edits** | With the full ribbon on, type your name once and edit the final document. Every change is a tracked change in your name, so Word shows who changed what. Stepping back through the history shows the student's text; your edits show again at the end. They go only into the review copy. |
 | **History check** | Review replays the whole history and says whether it rebuilds the document, whether the file was changed outside InkWitness, or whether the history is damaged or missing. |
 
 ## Fair by design
@@ -62,7 +63,7 @@ To review a real submission, press **Open DOCX…** or drop the file onto the pa
 
 ## Current limits
 
-- **Comments and highlights live in the browser tab** until you download the review copy. Reloading the page clears them.
+- **Comments, highlights and edits live in the browser tab** until you download the review copy. Reloading the page clears them.
 - **Write doesn't yet ask for the student's name, show the academic-integrity notice or save automatically.** Students should save often. These are the next stage of work (G1 below).
 - **Browsers:** tested so far in desktop Chromium, the engine behind Chrome and Edge. A browser with WebGL2 is needed. Firefox, Safari and school-managed devices are not tested yet.
 - **Microsoft Word:** WordCraft and LibreOffice round trips keep the history. Opening a submission or a review copy in desktop Word has not been tested yet.

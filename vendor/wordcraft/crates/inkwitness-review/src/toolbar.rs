@@ -126,9 +126,9 @@ pub enum ToolbarAction {
 /// The toolbar's height.
 pub const HEIGHT: f32 = 46.0;
 
-/// Draw the toolbar across the top of the window. `colour` is the Highlight button's colour (a
-/// pick from its menu changes it).
-pub fn show(ui: &mut Ui, app: &mut WordApp, has_file: bool, colour: &mut Highlight) -> Option<ToolbarAction> {
+/// Draw the toolbar across the top of the window. `editing` is the teacher's name while they edit
+/// ([`crate::edits`]); `colour` is the Highlight button's colour (a pick from its menu changes it).
+pub fn show(ui: &mut Ui, app: &mut WordApp, has_file: bool, editing: Option<&str>, colour: &mut Highlight) -> Option<ToolbarAction> {
     let a = Accents::get(ui.ctx());
     let mut act = None;
     egui::Panel::top("inkwitness_viewer_bar")
@@ -143,8 +143,14 @@ pub fn show(ui: &mut Ui, app: &mut WordApp, has_file: bool, colour: &mut Highlig
                 ui.add_space(8.0);
                 wordmark(ui, &a);
                 ui.add_space(14.0);
-                ui.label(RichText::new("Read-only").font(regular(11.5)).color(a.on_header_dim))
-                    .on_hover_text("Viewing only: nothing on this page changes the student's file.");
+                match editing {
+                    Some(name) => ui.label(RichText::new(format!("Editing as {name}")).font(regular(11.5)).color(a.on_header_dim)).on_hover_text(
+                        "Your changes are tracked changes in your name. They go only into the review copy; the student's file is never changed.",
+                    ),
+                    None => ui
+                        .label(RichText::new("Read-only").font(regular(11.5)).color(a.on_header_dim))
+                        .on_hover_text("Viewing only: nothing on this page changes the student's file."),
+                };
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
                     let ribbon = app.viewer_ribbon;

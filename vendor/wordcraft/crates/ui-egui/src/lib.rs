@@ -2803,13 +2803,22 @@ impl WordApp {
 /// the Word Count and Zoom dialogs and opening a file, and no Find and Replace dialog (it has a
 /// Replace tab). Keyboard shortcuts reach the rest; they would open editing UI (FAL-448). With
 /// the ribbon shown (`ribbon`, [`WordApp::viewer_ribbon`]), its tabs switch too (FAL-547).
+///
+/// A viewer may let its reviewer edit, every change tracked (FAL-547). So it never runs a `file.*`
+/// command (the reviewed file is never saved, replaced or closed from the page), nor the Review
+/// commands that would change what is tracked or by whom (Track Changes, its options, Accept,
+/// Reject, Restrict Editing, Compare, Combine) or the document's own comments: the front end keeps
+/// the reviewer's comments.
 pub fn viewer_allows(id: &str, params: &Value, ribbon: bool) -> bool {
     match id {
         "ui.dialog" => matches!(params.get("name").and_then(Value::as_str), Some("wordCount" | "zoom")),
         "ui.closeDialog" | "ui.openFileDialog" => true,
         "ui.tab" => ribbon && params.get("tab").and_then(Value::as_str) != Some("File"),
         "edit.findReplace" | "edit.advancedFind" => false,
-        _ => !id.starts_with("ui."),
+        "review.trackChanges" | "review.trackingOptions" | "review.restrict" | "review.compare" | "review.combine" => false,
+        "review.newComment" | "review.reply" | "review.editComment" | "review.deleteComment" | "review.resolveComment" => false,
+        _ if id.starts_with("review.accept") || id.starts_with("review.reject") => false,
+        _ => !id.starts_with("ui.") && !id.starts_with("file."),
     }
 }
 
