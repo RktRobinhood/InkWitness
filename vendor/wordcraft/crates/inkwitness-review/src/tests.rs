@@ -8,6 +8,7 @@ use wordcraft_ui_egui::{Services, WordApp};
 
 use super::Route;
 use super::review::{Consistency, Review, start_session};
+use crate::flags::FlagKind;
 
 struct TestEnv {
     ms: u64,
@@ -1188,4 +1189,99 @@ fn a_reopened_file_reviews_as_both_sessions() {
     let at = |seq| l.replay.state_at(seq).map(|s| s.doc.plain_text(StoryRef::Body)).unwrap_or_default();
     assert_eq!(at(after), "Monday. ");
     assert_eq!(at(l.replayable), "Monday. Wednesday.");
+}
+
+/// `bytes` (a saved history) with `add` typed at its end and the paragraph `Added ...` after it,
+/// saved again by an editor that doesn't record: what Word's save does to the text.
+fn edited_outside(bytes: &[u8], add: &str, cut: Option<&str>) -> Vec<u8> {
+    let doc = wordcraft_engine::io::open_bytes("essay.docx", bytes).unwrap_or_default();
+    let mut s = Session::new(doc);
+    if let Some(cut) = cut {
+        let (k, at) = s
+            .doc
+            .body
+            .iter()
+            .enumerate()
+            .find_map(|(k, b)| b.as_para().and_then(|p| p.text.find(cut)).map(|at| (k, at)))
+            .unwrap_or_else(|| panic!("{cut:?} isn't in the document"));
+        let pos = |off| wordcraft_doc::Pos::new(StoryRef::Body, wordcraft_doc::Path(vec![u32::try_from(k).unwrap_or(0)]), off);
+        s.sel = wordcraft_engine::Selection { anchor: pos(at), focus: pos(at + cut.len()) };
+        let _ = s.run("text.backspace", &json!({}));
+    }
+    let _ = s.run("caret.docEnd", &json!({}));
+    let _ = s.run("text.insert", &json!({"text": add}));
+    wordcraft_engine::io::save_bytes("essay.docx", &s.doc).unwrap_or_default()
+}
+
+#[test]
+fn a_file_changed_outside_shows_the_history_and_then_the_file_as_it_stands() {
+    let bytes = written_docx();
+    let big = format!(" Certainly! Here is the paragraph. {}", "More added text in another program. ".repeat(8));
+    let edited = edited_outside(&bytes, &big, Some("wrote this."));
+    let mut app = review_app();
+    let mut review = Review::default();
+    review.open(&mut app, "edited.docx", &edited);
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("{:?}", review.error));
+    assert_eq!(l.consistency, Consistency::ExternallyChanged);
+    // The history is still there to read.
+    assert!(l.replayable > 0 && l.replay.last_seq() == l.replayable);
+    let o = l.outside.clone().unwrap_or_else(|| panic!("no outside section"));
+    // It opens on the file as it stands: the page has the file's text, not the replayed end.
+    assert!(review.at_outside);
+    let file = wordcraft_engine::io::open_bytes("edited.docx", &edited).unwrap_or_default().plain_text(StoryRef::Body);
+    assert_eq!(app.session.doc.plain_text(StoryRef::Body), file);
+    assert!(file.contains("More added text in another program."));
+    // What was added and removed is visible, and the large addition is flagged like a large paste.
+    let added: String = o.hunks.iter().map(|h| h.added.as_str()).collect();
+    let removed: String = o.hunks.iter().map(|h| h.removed.as_str()).collect();
+    assert!(added.contains("More added text") && removed.contains("wrote this."), "{added:?} / {removed:?}");
+    let kinds: Vec<FlagKind> = o.hunks.iter().flat_map(|h| h.flags.iter().map(|f| f.kind)).collect();
+    assert!(kinds.contains(&FlagKind::OutsideAddition) && kinds.contains(&FlagKind::AiPhrase), "{kinds:?}");
+    assert!(review.status_line().contains(crate::outside::TITLE) && review.status_line().contains("Timing and source are unknown"));
+    assert!(!app.canvas.review_highlights.is_empty(), "the added text is marked on the page");
+    // Stepping into the history shows the recorded text; the section is one step away.
+    review.go(&mut app, 1);
+    assert!(!review.at_outside);
+    assert_ne!(app.session.doc.plain_text(StoryRef::Body), file);
+    review.show_outside(&mut app);
+    assert_eq!(app.session.doc.plain_text(StoryRef::Body), file);
+    // Promoting the change gives a neutral, editable comment that says the timing is unknown, and it goes
+    // into the review copy, whose document is the file as it stands.
+    let at = o.hunks.iter().position(|h| !h.flags.is_empty()).unwrap_or(0);
+    review.promote_outside(&mut app, at);
+    let draft = review.draft.as_ref().unwrap_or_else(|| panic!("no draft"));
+    assert!(draft.text.contains("isn't known") && draft.anchor.is_some(), "{}", draft.text);
+    review.save_draft();
+    assert_eq!(review.comments.len(), 1);
+    review.logic(&mut app);
+    let (_, copy) =
+        crate::export::review_copy(review.loaded.as_ref().unwrap_or_else(|| panic!()), &review.comments, None).unwrap_or_else(|e| panic!("{e}"));
+    let copy = wordcraft_engine::io::open_bytes("copy.docx", &copy).unwrap_or_default();
+    assert_eq!(copy.plain_text(StoryRef::Body).replace('\u{fffc}', ""), file);
+    assert!(copy.comments.values().any(|c| c.author == crate::export::AUTHOR));
+    assert!(wordcraft_inkwitness::envelope::extract(&copy).ok().flatten().is_none(), "the review copy carries no history");
+}
+
+#[test]
+fn a_file_that_matches_its_history_has_no_outside_section() {
+    let bytes = written_docx();
+    let mut app = review_app();
+    let mut review = Review::default();
+    review.open(&mut app, "essay.docx", &bytes);
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("{:?}", review.error));
+    assert_eq!(l.consistency, Consistency::Consistent);
+    assert!(l.outside.is_none() && !review.at_outside);
+    assert!(!review.status_line().contains(crate::outside::TITLE));
+}
+
+#[test]
+fn a_small_outside_edit_is_shown_but_not_flagged() {
+    let bytes = written_docx();
+    let edited = edited_outside(&bytes, " Fine.", None);
+    let mut app = review_app();
+    let mut review = Review::default();
+    review.open(&mut app, "edited.docx", &edited);
+    let o = review.loaded.as_ref().and_then(|l| l.outside.as_ref()).unwrap_or_else(|| panic!("no outside section"));
+    assert!(o.hunks.iter().all(|h| h.flags.is_empty()));
+    assert!(o.hunks.iter().any(|h| h.added.contains("Fine.")));
 }

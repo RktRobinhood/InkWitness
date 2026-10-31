@@ -170,6 +170,7 @@ pub fn template(kind: Option<FlagKind>) -> &'static str {
         Some(FlagKind::AiPhrase) => {
             "This passage, added on {when}, includes the wording “{matched}”.\n{quote}\nWhere does this wording come from? Can you tell me how you wrote this passage?"
         }
+        Some(FlagKind::OutsideAddition) => crate::outside::template(Some(FlagKind::OutsideAddition)),
         Some(FlagKind::HistoryStops) => {
             "The recorded writing history stops here, on {when}.\nCan you tell me what happened to the file after this point?"
         }
@@ -178,7 +179,7 @@ pub fn template(kind: Option<FlagKind>) -> &'static str {
 }
 
 /// Every template, for the wording test.
-pub const ALL_KINDS: [Option<FlagKind>; 8] = [
+pub const ALL_KINDS: [Option<FlagKind>; 9] = [
     Some(FlagKind::Paste),
     Some(FlagKind::LargePaste),
     Some(FlagKind::LargeInsert),
@@ -186,6 +187,7 @@ pub const ALL_KINDS: [Option<FlagKind>; 8] = [
     Some(FlagKind::Imported),
     Some(FlagKind::AiPhrase),
     Some(FlagKind::HistoryStops),
+    Some(FlagKind::OutsideAddition),
     None,
 ];
 

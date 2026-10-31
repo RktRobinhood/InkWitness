@@ -110,6 +110,18 @@ impl State {
         State { seq: 0, doc, ids: BTreeMap::new(), digests: HashMap::new() }
     }
 
+    /// This state's document replaced by `doc`, the document as a file has it after a change the
+    /// recorder didn't see. Paragraphs that are the same keep their block ids and the others
+    /// (new or changed) are matched by [`blocks::rebind`], so a comment anchored in this state can
+    /// be found in `doc`. Nothing is replayed from the result, and its `seq` stays this state's.
+    pub fn with_outside_document(&self, doc: Document) -> State {
+        let number = |id: &String| id.strip_prefix('b').and_then(|n| n.parse::<u64>().ok()).unwrap_or(0);
+        let used = self.ids.values().flatten().map(number).max().unwrap_or(0);
+        let mut ids = blocks::Ids::resumed(self.ids.clone(), used);
+        blocks::rebind(&mut ids, &self.doc, &doc, blocks::Hints::default());
+        State { seq: self.seq, doc, ids: ids.stories, digests: HashMap::new() }
+    }
+
     /// Each story's paragraph ids, in document order, by story.
     pub(crate) fn story_ids(&self) -> &BTreeMap<StoryRef, Vec<String>> {
         &self.ids

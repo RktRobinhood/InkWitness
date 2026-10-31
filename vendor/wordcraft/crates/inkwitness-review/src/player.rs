@@ -505,7 +505,7 @@ pub fn pin(p: &Painter, c: Pos2, kind: FlagKind, a: &Accents, hot: bool) {
         FlagKind::Paste => {
             p.circle(c, 4.5 * s, a.card, Stroke::new(2.0, a.observation.text));
         }
-        FlagKind::LargePaste => {
+        FlagKind::LargePaste | FlagKind::OutsideAddition => {
             let r = 7.5 * s;
             p.add(poly(vec![c + vec2(0.0, -r), c + vec2(r, 0.0), c + vec2(0.0, r), c + vec2(-r, 0.0)], gold));
         }

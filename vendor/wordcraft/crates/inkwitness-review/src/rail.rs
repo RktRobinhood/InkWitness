@@ -22,7 +22,7 @@ pub fn badge(c: &Consistency) -> (&'static str, &'static str, String) {
         Consistency::ExternallyChanged => (
             "info",
             "External changes",
-            "The file's text differs from its last recorded state: it was changed where InkWitness didn't see it.".into(),
+            "The file's text differs from its last recorded state: it was changed where InkWitness didn't see it. The file as it stands is shown after the history.".into(),
         ),
         Consistency::Corrupt(why) => ("close", "Corrupt", format!("The history stops replaying: {why}")),
         Consistency::Missing => {
@@ -50,6 +50,10 @@ pub enum RailAction {
     GoTo(u64),
     /// Open a comment draft pre-filled from this event (a flag, or any event).
     Promote(u64),
+    /// Show the file as it stands, after the last recorded event.
+    ShowOutside,
+    /// Open a comment draft pre-filled from this change made outside InkWitness.
+    PromoteOutside(usize),
     /// Save the draft as a comment.
     Save,
     /// Throw the draft away.
@@ -92,8 +96,11 @@ pub fn show(ui: &mut Ui, review: &mut Review, app: &WordApp) -> Option<RailActio
         draft(ui, review, &t, &a, &mut act);
     }
     let Some(l) = &review.loaded else { return act };
+    if l.outside.is_some() {
+        outside_card(ui, review, l, &t, &a, &mut act);
+    }
     section(ui, "Now showing", None, &t);
-    match current_card(review, l) {
+    match current_card(review, l).filter(|_| !review.at_outside) {
         Some(mut c) => {
             c.promoted = review.promoted(l.state.seq);
             c.promote = !c.promoted && review.draft.is_none();
@@ -108,6 +115,8 @@ pub fn show(ui: &mut Ui, review: &mut Review, app: &WordApp) -> Option<RailActio
             &a,
             if l.consistency == Consistency::Missing {
                 badge(&l.consistency).2
+            } else if review.at_outside {
+                "The file as it stands, after the last recorded event. The recorded moments are above and below.".into()
             } else {
                 "The start of the history, before the first recorded event. Press Play below to watch the writing.".into()
             },
@@ -154,7 +163,7 @@ fn take(act: &mut Option<RailAction>, a: Option<Action>) {
 /// history that stops) are the strongest.
 pub fn flag_tint(kind: FlagKind, a: &Accents) -> Tint {
     match kind {
-        FlagKind::LargePaste | FlagKind::AiPhrase | FlagKind::HistoryStops => a.corrupt,
+        FlagKind::LargePaste | FlagKind::AiPhrase | FlagKind::HistoryStops | FlagKind::OutsideAddition => a.corrupt,
         FlagKind::Paste | FlagKind::LargeInsert => a.observation,
         FlagKind::LargeDelete => a.word_comment,
         FlagKind::Imported => a.missing,
@@ -369,7 +378,7 @@ fn draft(ui: &mut Ui, review: &mut Review, t: &Tokens, a: &Accents, act: &mut Op
 /// where they can edit: the final document, at the end of the history.
 fn edit_card(ui: &mut Ui, review: &mut Review, app: &WordApp, t: &Tokens, a: &Accents, act: &mut Option<RailAction>) {
     let Some(l) = &review.loaded else { return };
-    let (end, at_end) = (l.replayable, l.state.seq == l.replayable);
+    let (end, at_end) = (l.replayable, review.final_shown());
     let editing = review.editing(app);
     let mut typing = false;
     egui::Frame::NONE.fill(a.card).stroke(Stroke::new(1.0, t.border)).corner_radius(CornerRadius::same(8)).inner_margin(12).show(ui, |ui| {
@@ -404,7 +413,7 @@ fn edit_card(ui: &mut Ui, review: &mut Review, app: &WordApp, t: &Tokens, a: &Ac
             let go = ui.add(egui::Button::new(RichText::new("Go to the end").font(medium(12.5)).color(t.text)).min_size(vec2(0.0, 26.0)));
             focus_ring(ui, &go, a);
             if go.clicked() {
-                *act = Some(RailAction::GoTo(end));
+                *act = Some(if l.outside.is_some() { RailAction::ShowOutside } else { RailAction::GoTo(end) });
             }
         }
         let change = ui.add(egui::Button::new(RichText::new("Change name").font(medium(12.0)).color(t.text)).min_size(vec2(0.0, 24.0)));
@@ -415,6 +424,87 @@ fn edit_card(ui: &mut Ui, review: &mut Review, app: &WordApp, t: &Tokens, a: &Ac
     });
     review.typing |= typing;
 }
+
+/// The longest passage a change shows in the rail, in characters.
+const SHOWN_CHARS: usize = 400;
+
+/// `text` (paragraph marks as line breaks) cut to [`SHOWN_CHARS`].
+fn excerpt(text: &str) -> String {
+    let flat = text.replace(wordcraft_inkwitness::PARA_MARK, "\n");
+    let flat = flat.trim();
+    if flat.chars().count() > SHOWN_CHARS {
+        format!("{}…", flat.chars().take(SHOWN_CHARS).collect::<String>().trim_end())
+    } else {
+        flat.to_string()
+    }
+}
+
+/// The final section: what the file has that its history doesn't end with. Collapsed to a line
+/// and a button while a recorded moment is shown; with every change, its flags and a Promote
+/// button while the file as it stands is shown.
+fn outside_card(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accents, act: &mut Option<RailAction>) {
+    let Some(o) = &l.outside else { return };
+    let here = review.at_outside;
+    egui::Frame::NONE
+        .fill(a.card)
+        .stroke(Stroke::new(1.0, if here { a.external.edge } else { t.border }))
+        .corner_radius(CornerRadius::same(8))
+        .inner_margin(12)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing = vec2(6.0, 5.0);
+            card::chip(ui, "info", crate::outside::TITLE, a.external);
+            let say = |ui: &mut Ui, text: &str, c: egui::Color32| ui.add(egui::Label::new(RichText::new(text).font(regular(12.0)).color(c)).wrap());
+            say(ui, &o.summary(), t.text);
+            if !here {
+                say(ui, "After the last recorded event, the file has text the history doesn't account for.", t.text_dim);
+                let show = ui.add(
+                    egui::Button::new(RichText::new("Show the file as it stands").font(semibold(12.5)).color(t.on_accent))
+                        .fill(t.accent)
+                        .min_size(vec2(0.0, 28.0)),
+                );
+                focus_ring(ui, &show, a);
+                if show.clicked() {
+                    *act = Some(RailAction::ShowOutside);
+                }
+                return;
+            }
+            say(ui, crate::outside::MEANING, t.text_dim);
+            for (i, h) in o.hunks.iter().enumerate().take(MAX_SHOWN_CHANGES) {
+                ui.separator();
+                ui.label(RichText::new(format!("Change {} of {}", i + 1, o.hunks.len())).font(semibold(12.5)).color(t.text));
+                if !h.added.trim().is_empty() {
+                    ui.label(RichText::new("Added").font(medium(11.5)).color(t.text_dim));
+                    say(ui, &excerpt(&h.added), t.text);
+                }
+                if !h.removed.trim().is_empty() {
+                    ui.label(RichText::new("Removed").font(medium(11.5)).color(t.text_dim));
+                    ui.add(egui::Label::new(RichText::new(excerpt(&h.removed)).font(regular(12.0)).color(t.text_dim).strikethrough()).wrap());
+                }
+                for f in &h.flags {
+                    card::chip(ui, f.kind.icon(), &f.label, flag_tint(f.kind, a));
+                    let meaning = match &f.matched {
+                        Some(m) => format!("Matched wording: “{m}”. {}", f.kind.meaning()),
+                        None => f.kind.meaning().to_string(),
+                    };
+                    say(ui, &meaning, t.text_dim);
+                }
+                if review.draft.is_none() {
+                    let b = ui.add(egui::Button::new(RichText::new("Promote to comment").font(medium(12.0)).color(t.text)).min_size(vec2(0.0, 24.0)));
+                    focus_ring(ui, &b, a);
+                    if b.on_hover_text("Start a comment on this change, with a question to ask").clicked() {
+                        *act = Some(RailAction::PromoteOutside(i));
+                    }
+                }
+            }
+            if o.hunks.len() > MAX_SHOWN_CHANGES {
+                say(ui, &format!("…and {} more changes, all in the page and the review copy.", o.hunks.len() - MAX_SHOWN_CHANGES), t.text_dim);
+            }
+        });
+}
+
+/// The most changes the rail lists.
+const MAX_SHOWN_CHANGES: usize = 20;
 
 /// The file's header: the mark, its name, who and what it is for, the history badge and caveat.
 fn header(ui: &mut Ui, review: &Review, app: &WordApp, t: &Tokens, a: &Accents, act: &mut Option<RailAction>) {

@@ -15,6 +15,7 @@ pub mod comments;
 pub mod edits;
 pub mod export;
 pub mod flags;
+pub mod outside;
 pub mod player;
 pub mod rail;
 pub mod review;
