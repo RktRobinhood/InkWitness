@@ -36,6 +36,7 @@ REQUIRED = [
     'assets/brand/png/inkwitness-192.png', 'assets/brand/png/inkwitness-512.png',
     'schemas/evidence-v1.schema.json', 'schemas/assignment-v1.schema.json',
     'examples/tok-essay-assignment.json', 'examples/sample-evidence-v1.json',
+    'examples/evidence-v1.2-unobserved.json', 'docs/adr/0003-sessions-and-unobserved-spans.md',
     'policies/ai-assistant-guidance.json', 'policies/STUDENT_NOTICE_TEMPLATE.md',
 ]
 
@@ -68,6 +69,20 @@ def main():
         fmt = jsonschema.FormatChecker()
         jsonschema.Draft202012Validator(schema1, format_checker=fmt).validate(evidence)
         jsonschema.Draft202012Validator(schema2, format_checker=fmt).validate(assignment)
+        # Schema 1.2: the fixture with an unobserved span validates; 1.0 and 1.1 files still do,
+        # and a file that claims 1.1 may not carry the 1.2 span list.
+        v12 = jsonschema.Draft202012Validator(schema1, format_checker=fmt)
+        fixture = load('examples/evidence-v1.2-unobserved.json')
+        v12.validate(fixture)
+        old = dict(fixture, schemaVersion='1.1')
+        if v12.is_valid(old):
+            raise AssertionError('A 1.1 file with unobservedSpans must not validate')
+        del old['unobservedSpans']
+        v12.validate(old)
+        no_list = {k: v for k, v in fixture.items() if k != 'unobservedSpans'}
+        if v12.is_valid(no_list):
+            raise AssertionError('A 1.2 file must carry unobservedSpans (empty if nothing was missed)')
+        print('Evidence 1.0, 1.1 and 1.2 (with unobserved spans) VALID.')
         print('JSON examples VALID against draft-2020-12 schemas.')
 
     if evidence['attemptId'] != evidence['events'][0]['attemptId']:

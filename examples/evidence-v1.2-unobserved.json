@@ -1,0 +1,161 @@
+{
+  "assignmentId": "essay",
+  "attemptId": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "checkpoints": [
+    {
+      "afterSeq": 0,
+      "canonicalDocumentStateDigest": "1abbfebc822d5c9788ac50574a7d8ee02274a246b135672cfb909b237b6bf643",
+      "compressedStateBase64": "H4sIAAAAAAAC/+1c227jOBL9FUPPmoZ1tZW3TmZ6uoF0J9vJ7gIbBAvZom2NZcmrSzLZRoD9h/3D/ZKtIqmLdbFF2s44mXTHgEmxSqzD4mGxKPmHMgmi6fKLlyhnP5RJ5D0pZ3fKRFPun1XFi6bZioRp5dIPZemHnnKmrN3YVVQlzkKQvLtXlZT8Dg0V5Rm+T6MVyqHOZyzFBFVM3ZTMo/gJW0FtTKDsVQpRzAoeSaaxv079KGQVS/L0GMXYRSwFbpJ+jTx/5hPvnCtb8TIrxeTBT6j0UFWSbPIbmabsSuqnAaG9hHtmSRqtruNozS1AxTfQlEpCd6MgW4UJ+5ohChpoI2g47erMDRICNWt3CioN+wPc7NH30gVVx+D7NfahT2EWBKoyi6KUxHlLVqLaPTJzsyDN25EHEhYyfpzwC6BwnqVUwxAVLIjrlepYSUxd4IZeMnXXpLAl8EPyLVtNqCYmsnLjuR+eRylgpZyNdLwZq7sks3Sz5rs/X9SqbqN1XrF25+QchrGiHKs+w3WnaAB3/xTFKxfHyyNTf+UGSnHlJnXjtCr7d+XM1qhsnAbliLBmSggeeQ2t8nGn3/NGD27gz9G/UughgBFSs/1wjhC6kySN3WnKHQOu5WMKo5+7de5lvFFC0hTE6RC4QRA93qBjXM1u3BW5SZ8C8iW8dSdB2QM3S6PPT+sFCV3mcrweJs/aRQ+HppqF5TAh0yz1Hwhrfumv/JT6Nh9q0Jv7AQm9EByrwBD6QeLv0coNFeYKV573OfcVfkN0xQ2hEvg5+C8MkIOq8fvf+PcF7ze5cHH2pHFGykow5h9RiL0fY1twqiUFoLzjyv0tij9FOKeUj+s0SgY/+8k6cJ9wKvvh5jVaF8dR/JV6VKkFPeAiCnAuli5x7U/TDPmGV8VgGJ/SrCZdkBUTw4G7G6rw/1690y1L5R8oaaZqDlUbv+qGrvIPljTVsVXNoCKGoWqaoVpMXtWGI9WwURq+W2NV1wws2EPVhIbmCAqjsarZI9XEVqOhqunwMUwqMqSKdev+nvfxGzgOYHARuzDPoA4ccnmxcMN5BUha+TV6IMUgPMKgwDDGy2KaJ1EWT0nupXwgCpq4WMRYmm0CviQxAKbR4XNxToBj/fTXG7iS+P/GkYVJ91z43zWuBaAE6QO9ns+iOKNcu4IW/jrAaQiTLkPpD5rp4L+RDThppv7MafTjjPIbdRtacU5mdPEYcnKNHi+go3EUMHM3u3Adk4SuVgyJ3FRYsyZuQryrwgUmmQ9dCvOGUwoB6Fr4nkfKiYjUrXzDSYFTobLuzWN3vVCYZ5OC30M2XoVASBfE3DMpQkggsR/FfvpE5++/Mn+6zLuRMnZgoybcZ1ZNu/xzCQntKZ1MhQHThYvUBjh3GMDFB4X8gCvYZZBWGJR7Z4dFJUZiI5H7lshgDEqhlv4LuOyw5qRDWtNm/fbh3GE8hh0R/fJ9DqyOXDICzhnh4jNrZ0w2JXXWoTbkkPDBQG07cEUzIBl0Dg4hrx1oBYKlBTmKS0LWl4BkwUJY8Y02ZuUoSxHpS1iBAhaVVZA0G9MdF45NcId/MLqavQtdvR+6eju6+uHQ1Xah2wD3hV23BNXcBarRD1SjHVTjcKDqwqDqLw6qn0JMOy2Wv+pCvQVisx/EZjvE5uEgNjYh1hsQm3WIjQMtOOKOuxNVqx+qVjuq1uFQNYVRNY+E6thR6d/BPNfuh7HdjrF9OIytRmRQw1ivY2y9PMZ9UR31Q3XUjurocKjawqjaR0LVcFT6dzDPHffDeNyO8fhwGI92YdyIckcvj3FfVJ1+qDrtqDqHQ3UsjOr4UKh2BLF8P8/CFrZdKDbZdOvz0/CD1YHuLc2Z9t9z5e27wIR8FuaKMzcoNl7MBPm9mPlC24UqvZYhbAXG4YdRF4w32SQVRLIi0gGmZBzfkSHohYFtqvQPMaiy3xazA/LLar1wEz8RSEMwwUFFcmf+wTmK/T2MlDBPwC59+BLjWg16e5j8BSYx5KUlLOeSIiOrH8ezJ1HgbXdeSDVW8027nTYX2GnRkbaHgrPzLxmkxwUYKW/fxe35ocoU8rAUpa17ZN05/h65vyuLYpH7sTAmk/wQDCwk6SMpz+cm/JitsKg0pTho1Fg4gcltUJrAskMXCHryiAsQrj9wSuJ75J8Pud6AHtWx7zE7pOOHIXg8t9/d6O0A05SdB5rGB32I/0a27hiOaeWX+eFgy/XqSq6NdycDjRfhQwcOZPCPrvUwokF51LV1qftOZiQm4ZSIr3VV0V0EYhybEtVts6oGyEYEpFvb55kMQPlcE0JIPzpCtd1fDwzOo2hZC6h3Go8yg82oeovVxmE4taP/l35S4iRAlig3qAq2HcZ07gyqBGPYdTowX4IOKqe1cPcMOhTjfqUkxa696dOatlwKDHhVZtd4O86xkqD5Efhze5bD6dyOAy/QA/f+3lFKdC2i8ntDrb7ZNqzjnlOyxysErC8EDn5ASU1jR+CNKCTgzw8pIT6rATeEXMuZbtCtdNmcRQsdrU0bl+b74/hjB7qf2FNU/dEtBN7Rrc52nr7oPjT+xJ8KukXYxOBGsQGXO+6huwAeQuT/QOL0Ix+kJAM2Zk8kKjuwkgltCsBEYpsX9INf2BNlgm7Apf5UXsBtlnGCHK4j+UDlARARrr29uuCSIunfq4tBKdW1nm8mzJ36lq9+tGMceVWBTmuCNm57HqYar5bZf+691svbpgvapve0TdNPwDhD0Dijp3G6eQLGmYLGmT2NY08L/8HGWYLGWT2NM8cnYJwtaJzd0zj7FAhlJGjcqKdxo1MglLGgceOexo1PgVAcQeOcnsY5ByQU8ae06ZsV9GWbwjqmvMsyvDjgAscNTq0us9Hg0Ku9EYNVF7mlWPjkB0H14g2N1/PjguZBQpHHYU14Gr/HmUHj7EFUQXnoIK2CnVNIi/OjDWn5zdMQMWl8oYwEQfGOCpMGVefNQea1xTjzcnWoeVV1tGeVy/RFLniJpaY4ry405xVV1exVsZokqyzkWLEqhS/HNW/Iaws5Xq4KphEkD5kYfRmsUZts1BWqaKlU9LzfOxF0wtff5dhKEazx4Ja32bUbY1d6kvdmb0SI7jpwffYemdbTDirBzKjsWY7FdvbwAGx3p5vwvhX73FdpT9vBeXeao6n8c78X+UlramFBaV01OpTWU+dFaUX142IpNcdkSk2CJjcfA5FizNqTJCdOnnvQD0ZMjH0ueeq6DwWhVM5Ag1zwFfBQPeraTT8WvOjJPvvSj6SmVvqR1NWgH0k9TfqRVNR4WkVGzTv9vAH6MT9O8ajtHNlAmIPMwf/+898Bl30N4ZDmGKquwwvlpiUaDlUF9wuH5DS1h0NyuprhkJyelnBITlEjHJJR87b5qPEUWfV3Fp5rbFX9dYW3Q1r46BOVNoRJiz41xUjLeGWk1TN26nruteoJMmxTfe51X60NvpBTU2MLGSWnxhVvgyD2H9hTiYeuYvx5GNmIqJB+FSkiS4PF1mY/siMSE20K7hMTyWpqi4lkdTUYTlJPk+MkFdVZTkrNe0xUobzKr0y93aBIiLkaYdFrYq59A6OqOxwwMpJT26QNOT111pDR8h4cHYUpDjC2pxIe/Rrj1JKMjnLhV5Mwgrc34E07iYRRIbh3wkhCU2fCSEJXa8JIQk97wkhCUVvCSFjNe3BUobzyVzffbmwkQluN0OgV0da+kVHFFw4YGElpbdlOyahpbKbElbxHRcegiP0H9lRioussXgfSKaNC+lWkjOD3JnT4aSDdGAumjDYE90oZSWpqTRlJ6mownKSeJsdJKqqznJSa96iopDzcpJmQxza1txwWCTFXIy56Tcy1Z2C04Q6Hi4wk1TY3U3J66nspGS1/+uDoOExxgLEVJhmw7fn/Ae3v3M1mAAA="
+    }
+  ],
+  "diagnostics": [],
+  "events": [
+    {
+      "afterAnchor": {
+        "blockId": "b1",
+        "contextHash": "335b247501642e4fb2d6ce37cbc7961f3e4fb3ee3843ee05f1a5905f39fe04d4",
+        "endOffset": 8,
+        "startOffset": 0,
+        "state": "after"
+      },
+      "atLocalIso": "2026-10-28T09:00:00Z",
+      "attemptId": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+      "beforeAnchor": {
+        "blockId": "b1",
+        "contextHash": "335b247501642e4fb2d6ce37cbc7961f3e4fb3ee3843ee05f1a5905f39fe04d4",
+        "endOffset": 0,
+        "startOffset": 0,
+        "state": "before"
+      },
+      "deletedText": "",
+      "documentStateDigest": "a8ea8469d1a28f4c58c5b310e9d357665bb6340118f90f9f5ad58e0b724cb6ed",
+      "elapsedMonotonicMs": 10,
+      "endMonotonicMs": 20,
+      "eventDigest": "9c3079c1410adba5e2c9fb80c8d19b06d8ecf936291e587cc235a7810a5ec29e",
+      "eventId": "00000000-0000-4000-8000-000000000001",
+      "fieldId": "essay",
+      "gestureId": null,
+      "insertedText": "Hi there",
+      "keyCount": 2,
+      "ops": [
+        {
+          "afterBlocks": [
+            {
+              "blockId": "b1",
+              "len": 8
+            }
+          ],
+          "beforeBlocks": [
+            {
+              "blockId": "b1",
+              "len": 0
+            }
+          ],
+          "command": "text.insert",
+          "deleted": "",
+          "inserted": "Hi there",
+          "offset": 0,
+          "op": "replace",
+          "story": "body"
+        }
+      ],
+      "origin": "keyboard",
+      "priorEventDigest": "ebb6aeffcacbceeadaeaee6ee27c45f1177e87b74268bfcafa8eb2c6a57eb02e",
+      "sectionId": "main",
+      "seq": 1,
+      "sessionSpanId": "session-2",
+      "type": "text_insert"
+    }
+  ],
+  "export": {
+    "exportedAtLocal": "2026-10-29T10:00:00Z",
+    "finalSeq": 1,
+    "integrityType": "unsigned-local-chain",
+    "recordedStateDigest": "a8ea8469d1a28f4c58c5b310e9d357665bb6340118f90f9f5ad58e0b724cb6ed",
+    "selfHashCaveat": "Unsigned local evidence; not proof of authenticity"
+  },
+  "policy": {
+    "acknowledgedAtLocal": "2026-10-28T09:00:00Z",
+    "aiAssistance": "not-permitted",
+    "clipboard": "allow-record",
+    "policyVersion": "test"
+  },
+  "schema": "urn:workalone:evidence",
+  "schemaVersion": "1.2",
+  "sections": [
+    {
+      "fields": [
+        {
+          "fieldId": "essay",
+          "kind": "richtext"
+        }
+      ],
+      "sectionId": "main"
+    }
+  ],
+  "sessionSpans": [
+    {
+      "attemptId": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+      "endedAtLocal": "2026-10-28T09:40:00Z",
+      "endedAtServer": null,
+      "lastSeq": 0,
+      "reason": "new",
+      "spanId": "session-1",
+      "startedAtLocal": "2026-10-28T09:00:00Z",
+      "startedAtServer": null,
+      "startedElapsedMs": 0
+    },
+    {
+      "attemptId": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+      "endedAtServer": null,
+      "lastSeq": 1,
+      "reason": "resume",
+      "spanId": "session-2",
+      "startedAtLocal": "2026-10-29T09:00:00Z",
+      "startedAtServer": null,
+      "startedElapsedMs": 0
+    }
+  ],
+  "student": {
+    "displayName": "Example Student",
+    "enteredAtLocal": "2026-10-28T09:00:00Z",
+    "identityAuthenticated": false,
+    "identityEnteredByStudent": true,
+    "studentCode": null
+  },
+  "unobservedSpans": [
+    {
+      "afterSeq": 0,
+      "beforeSeq": 1,
+      "endAnchor": null,
+      "endedAtLocal": "2026-10-29T09:00:00Z",
+      "endedAtServer": null,
+      "fieldId": null,
+      "fromSessionSpanId": "session-1",
+      "kind": "gap-between-sessions",
+      "label": "Not observed: between session 1 and session 2",
+      "spanId": "unobserved-gap-1",
+      "startAnchor": null,
+      "startedAtLocal": "2026-10-28T09:40:00Z",
+      "startedAtServer": null,
+      "toSessionSpanId": "session-2"
+    },
+    {
+      "afterSeq": 1,
+      "beforeSeq": null,
+      "endAnchor": null,
+      "endedAtLocal": null,
+      "endedAtServer": null,
+      "fieldId": "essay",
+      "fromSessionSpanId": null,
+      "kind": "change-outside-writer",
+      "label": "Not observed: a change made where InkWitness was not running",
+      "spanId": "unobserved-outside-1",
+      "startAnchor": null,
+      "startedAtLocal": null,
+      "startedAtServer": null,
+      "toSessionSpanId": null
+    }
+  ],
+  "writerVersion": "test"
+}

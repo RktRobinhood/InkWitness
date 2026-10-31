@@ -24,8 +24,12 @@
       "const": "urn:workalone:evidence"
     },
     "schemaVersion": {
-      "enum": ["1.0", "1.1"],
-      "description": "1.1 adds the optional event fields endMonotonicMs and keyCount; 1.0 files are read as they are."
+      "enum": [
+        "1.0",
+        "1.1",
+        "1.2"
+      ],
+      "description": "1.1 adds the optional event fields endMonotonicMs and keyCount. 1.2 adds sessions' server-time fields and the top-level unobservedSpans array. Files of an earlier version are read as they are."
     },
     "writerVersion": {
       "type": "string"
@@ -236,10 +240,32 @@
               "recovery",
               "import"
             ]
+          },
+          "startedAtServer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "1.2, optional: server time. Empty in V1."
+          },
+          "endedAtServer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "1.2, optional: server time. Empty in V1."
+          },
+          "lastSeq": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "1.2, optional: the seq of the last event recorded in this session (0 if none)."
           }
         },
         "additionalProperties": false
-      }
+      },
+      "description": "Sessions: each time the student's writer opened the attempt, oldest first. startedAtLocal/endedAtLocal are the student's device clock (client time). The *AtServer fields are for a server's clock; V1 has no server and leaves them null or out."
     },
     "events": {
       "type": "array",
@@ -325,6 +351,125 @@
         }
       },
       "additionalProperties": false
+    },
+    "unobservedSpans": {
+      "type": "array",
+      "description": "1.2: the spans InkWitness did not see. Present, possibly empty, in every 1.2 file.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "spanId",
+          "kind",
+          "label",
+          "afterSeq",
+          "beforeSeq"
+        ],
+        "description": "A stretch InkWitness did not see. Unknown: it is not clean and it is not suspicious, and nothing is inferred about what happened in it.",
+        "properties": {
+          "spanId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "gap-between-sessions",
+              "preexisting-at-import",
+              "change-outside-writer"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name the reviewer shows, in neutral words, e.g. 'Not observed: between session 1 and session 2'."
+          },
+          "afterSeq": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Where the span starts: the last event seen before it (0 if none)."
+          },
+          "beforeSeq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Where it ends: the first event seen after it, or null if none follows."
+          },
+          "fromSessionSpanId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toSessionSpanId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startedAtLocal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Client time the span starts (the end of the session before it), or null if unknown."
+          },
+          "endedAtLocal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Client time the span ends (the start of the session after it), or null if unknown."
+          },
+          "startedAtServer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Server time. Empty in V1."
+          },
+          "endedAtServer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Server time. Empty in V1."
+          },
+          "fieldId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startAnchor": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/anchor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the unseen text or change starts in the document, if it is tied to text."
+          },
+          "endAnchor": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/anchor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it ends."
+          }
+        }
+      }
     }
   },
   "$defs": {
@@ -439,8 +584,16 @@
           "type": "string",
           "format": "date-time"
         },
-        "endMonotonicMs": {"type": "number", "minimum": 0, "description": "1.1, optional: when the last key press of a merged typing event was made (elapsedMonotonicMs is when the first was)."},
-        "keyCount": {"type": "integer", "minimum": 1, "description": "1.1, optional: how many key presses a merged typing event holds."},
+        "endMonotonicMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "1.1, optional: when the last key press of a merged typing event was made (elapsedMonotonicMs is when the first was)."
+        },
+        "keyCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1.1, optional: how many key presses a merged typing event holds."
+        },
         "elapsedMonotonicMs": {
           "type": "number",
           "minimum": 0
@@ -611,5 +764,31 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": "1.2"
+          }
+        },
+        "required": [
+          "schemaVersion"
+        ]
+      },
+      "then": {
+        "required": [
+          "unobservedSpans"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "unobservedSpans"
+          ]
+        }
+      }
+    }
+  ]
 }

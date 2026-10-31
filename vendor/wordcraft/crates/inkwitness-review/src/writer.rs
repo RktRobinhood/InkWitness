@@ -37,6 +37,9 @@ pub fn attach_for(app: &mut WordApp, mut env: Box<dyn Env>, now: Box<dyn Fn() ->
         acknowledged_at_local: started.clone(),
         writer_version: WRITER_VERSION.into(),
         started_at_local: started,
+        reason: evidence::SessionReason::New,
+        earlier_sessions: Vec::new(),
+        other_unobserved: Vec::new(),
     };
     let recorder = Recorder::attach(&mut app.session, env, config);
     let r = recorder.clone();

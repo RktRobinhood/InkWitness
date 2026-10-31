@@ -322,6 +322,9 @@ fn a_1500_word_essay_has_about_six_times_fewer_events() {
             acknowledged_at_local: "2026-10-28T09:00:00Z".into(),
             writer_version: "test".into(),
             started_at_local: "2026-10-28T09:00:00Z".into(),
+            reason: evidence::SessionReason::New,
+            earlier_sessions: Vec::new(),
+            other_unobserved: Vec::new(),
         };
         let payload = serde_json::to_vec(&evidence::document(&r, &s.doc, &attempt, "2026-10-28T10:00:00Z")).unwrap_or_default();
         // For a full JSON Schema validator outside Rust: `INKWITNESS_DUMP_EVIDENCE=<dir>`.
