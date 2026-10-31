@@ -19,6 +19,7 @@ pub mod player;
 pub mod rail;
 pub mod review;
 pub mod sample;
+pub mod steps;
 pub mod toolbar;
 #[cfg(target_arch = "wasm32")]
 pub mod web;

@@ -53,12 +53,18 @@ impl Live {
 
     /// Run a command; one state per event it made.
     fn run(&mut self, id: &str, params: Value) {
-        let n = self.r.events().len();
+        let before = self.r.events();
         self.s.run(id, &params).unwrap_or_else(|e| panic!("{id}: {e}"));
-        let made = self.r.events().len() - n;
+        let after = self.r.events();
+        let made = after.len() - before.len();
         assert!(made <= 1, "{id} made {made} events");
         if made == 1 {
             self.states.push(self.s.doc.clone());
+        } else if before.last().is_some_and(|e| after.last() != Some(e)) {
+            // A key press that joined the last typing event: that event's state moved on.
+            if let Some(last) = self.states.last_mut() {
+                *last = self.s.doc.clone();
+            }
         }
     }
 
@@ -184,7 +190,8 @@ fn typing_carries_text_only_and_other_commands_their_content() {
     let l = busy_session();
     let ev = l.r.events();
     let typed: Vec<&Value> = ev.iter().filter(|e| e.pointer("/ops/0/command") == Some(&json!("text.insert"))).collect();
-    assert!(typed.len() > 20);
+    let keys: u64 = typed.iter().map(|e| e["keyCount"].as_u64().unwrap_or(1)).sum();
+    assert!(typed.len() > 5 && keys > 20, "{} events, {keys} keys", typed.len());
     let plain = typed.iter().filter(|e| e.pointer("/ops/0/content").is_none()).count();
     // Typing into a table cell, a list item or after formatting may need its paragraph model:
     // whatever the rule can't rebuild carries content. Most keystrokes need none.
@@ -274,7 +281,7 @@ fn an_import_replays_from_its_own_checkpoint() {
         cps.truncate(1);
     }
     let rp = Replay::from_evidence(&ev).unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(rp.state_at(rp.last_seq()).err(), Some(ReplayError::NoCheckpoint(4)));
+    assert_eq!(rp.state_at(rp.last_seq()).err(), Some(ReplayError::NoCheckpoint(2)));
 }
 
 #[test]

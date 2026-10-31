@@ -29,6 +29,21 @@ pub use blocks::{Anchor, Op, PARA_MARK, WindowBlock, story_key};
 /// Event content (the changed paragraphs' full model) is left out past this size.
 pub const MAX_CONTENT_BYTES: usize = 256 * 1024;
 
+/// Typing joins one event until a pause longer than this (ms).
+pub const MERGE_PAUSE_MS: u64 = 2000;
+/// A merged typing event holds at most this many key presses, so a long run without a space
+/// still reads as typing and never as a large insertion or deletion.
+pub const MERGE_MAX_KEYS: u64 = 32;
+/// A single key press carries at most this many characters (an input method may commit a few).
+const MERGE_MAX_KEY_CHARS: usize = 8;
+
+/// Whether typing that has made `run` (all of one event's text so far) ends its event: the last
+/// character is a space or punctuation mark, and a letter or digit came before it. A space typed
+/// after a full stop therefore starts the next word's event instead of making one of its own.
+pub fn ends_word(run: &str) -> bool {
+    run.chars().next_back().is_some_and(|c| !c.is_alphanumeric()) && run.chars().any(char::is_alphanumeric)
+}
+
 /// Domain separation for the provisional hashes.
 const DOMAIN_GENESIS: &str = "inkwitness:genesis:v0";
 const DOMAIN_EVENT: &str = "inkwitness:event:v0";
@@ -107,6 +122,44 @@ pub struct Config {
     pub section_id: Option<String>,
 }
 
+/// What a typing event adds to the plain event fields.
+struct Typing {
+    end_ms: u64,
+    keys: u64,
+}
+
+/// What a typing run is made of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RunKind {
+    /// Characters typed one after another.
+    Insert,
+    /// Backspaces in a row.
+    Backspace,
+    /// Delete key presses in a row.
+    Forward,
+}
+
+/// The typing run the last event holds: what it started from, so the merged event can be
+/// diffed again from there, and where the next key press has to land to join it.
+struct Run {
+    kind: RunKind,
+    command: String,
+    base: Document,
+    base_ids: blocks::Ids,
+    base_pos: wordcraft_doc::Pos,
+    /// Where the caret is after the last key press.
+    caret: wordcraft_doc::Pos,
+    story: wordcraft_doc::StoryRef,
+    block: String,
+    /// The run's change so far, for the next key press to line up against.
+    offset: usize,
+    text: String,
+    last_ms: u64,
+    keys: u64,
+    /// The last event's `priorEventDigest`.
+    prior: String,
+}
+
 /// Records committed edits as evidence events. Cloning gives another handle on the same
 /// record: attach one to the session, read the events through another.
 #[derive(Clone)]
@@ -125,6 +178,12 @@ struct State {
     last: Document,
     digests: HashMap<usize, [u8; 32]>,
     events: Vec<Value>,
+    /// The typing run the last event belongs to, while the next key press may still join it.
+    open: Option<Run>,
+    /// Whether typing joins events (always, except to make a per-letter file for a test).
+    merge: bool,
+    /// The event a joined key press writes again (see [`State::join`]).
+    reuse: Option<Value>,
     /// Model states to replay from (`checkpoints[]`): one when the recorder attached, and one
     /// whenever a command replaced the document (an import, New, Open).
     checkpoints: Vec<Value>,
@@ -137,8 +196,33 @@ impl Recorder {
         ids.assign_all(doc);
         let prior = sha256_hex(DOMAIN_GENESIS, config.attempt_id.as_bytes());
         let checkpoints = vec![replay::checkpoint_json(0, doc, &ids.keyed())];
-        let state = State { env, config, seq: 0, prior, ids, last: doc.clone(), digests: HashMap::new(), events: Vec::new(), checkpoints };
+        let state = State {
+            env,
+            config,
+            seq: 0,
+            prior,
+            ids,
+            last: doc.clone(),
+            digests: HashMap::new(),
+            events: Vec::new(),
+            open: None,
+            merge: true,
+            reuse: None,
+            checkpoints,
+        };
         Recorder { state: Arc::new(Mutex::new(state)) }
+    }
+
+    /// Record one event per key press, as a 1.0 writer did. For tests and fixtures: the review
+    /// page reads both.
+    pub fn set_merge_typing(&self, merge: bool) {
+        self.lock().merge = merge;
+    }
+
+    /// Whether typing joins events (the default). The evidence says 1.1 when it does, 1.0 when
+    /// it records a file the way a 1.0 writer did.
+    pub fn merges_typing(&self) -> bool {
+        self.lock().merge
     }
 
     /// A recorder attached to `session`, which now reports every committed edit to it.
@@ -250,14 +334,17 @@ impl State {
         if !self.last.same_content(c.before) {
             let before = std::mem::take(&mut self.last);
             let ops = blocks::rebind(&mut self.ids, &before, c.before, blocks::Hints::default());
-            self.emit("", CommitKind::Edit, ops, None, &before, c.before);
+            let ms = self.env.monotonic_ms();
+            let json_ops = self.json_ops("", CommitKind::Edit, &ops, &before, c.before);
+            self.push_event("", CommitKind::Edit, &ops, json_ops, None, c.before, ms, None);
             drop(before);
         }
+        let ms = self.env.monotonic_ms();
         if c.kind == CommitKind::Replaced {
             self.ids.assign_all(c.after);
             let stories: Map<String, Value> = self.ids.stories.iter().map(|(s, ids)| (story_key(*s), json!(ids))).collect();
             let op = json!({"op": "replaceDocument", "command": c.command, "stories": stories});
-            self.push_event(c.command, c.kind, &[], vec![op], None, c.after);
+            self.push_event(c.command, c.kind, &[], vec![op], None, c.after, ms, None);
             // The new document's state isn't in any op: replay starts again from here.
             let cp = replay::checkpoint_json(self.seq, c.after, &self.ids.keyed());
             self.checkpoints.push(cp);
@@ -265,33 +352,141 @@ impl State {
         }
         let (start, _) = c.before_sel.ordered();
         let hints = blocks::Hints { before: Some(&start), after: Some(&c.after_sel.focus) };
+        let before_ids = self.ids.clone();
         let ops = blocks::rebind(&mut self.ids, c.before, c.after, hints);
-        self.emit(c.command, c.kind, ops, c.gesture, c.before, c.after);
+        let key = typing_key(c, &ops).filter(|_| self.merge);
+        if let Some(kind) = key
+            && self.join(c, kind, &start, ms)
+        {
+            return;
+        }
+        let json_ops = self.json_ops(c.command, c.kind, &ops, c.before, c.after);
+        let run = key.and_then(|kind| {
+            let o = ops.first()?;
+            Some(Run {
+                kind,
+                command: c.command.to_string(),
+                base: c.before.clone(),
+                base_ids: before_ids,
+                base_pos: start,
+                caret: c.after_sel.focus.clone(),
+                story: o.story,
+                block: o.before.first()?.id.clone(),
+                offset: o.offset,
+                text: if kind == RunKind::Insert { o.inserted.clone() } else { o.deleted.clone() },
+                last_ms: ms,
+                keys: 1,
+                prior: self.prior.clone(),
+            })
+        });
+        let typing = run.as_ref().map(|_| Typing { end_ms: ms, keys: 1 });
+        self.push_event(c.command, c.kind, &ops, json_ops, c.gesture, c.after, ms, typing);
+        // A word's last character ends its event.
+        self.open = run.filter(|r| !(r.kind == RunKind::Insert && ends_word(&r.text)));
     }
 
-    fn emit(&mut self, command: &str, kind: CommitKind, ops: Vec<Op>, gesture: Option<&Gesture>, before: &Document, after: &Document) {
-        // Typing carries its text only, when the plain-text rule rebuilds its paragraphs exactly;
-        // anything else carries the changed paragraphs too.
-        let keyboard = classify(command, kind, &ops).1 == "keyboard";
+    /// Join this key press to the open typing run, if it continues it: the same kind of key,
+    /// right at the run's caret, within the pause and key limits. The run's event is then written
+    /// again as the one command the whole run amounts to. Returns whether it joined.
+    fn join(&mut self, c: &Commit<'_>, kind: RunKind, start: &wordcraft_doc::Pos, ms: u64) -> bool {
+        let Some(run) = self.open.as_ref() else { return false };
+        if run.kind != kind
+            || run.command != c.command
+            || *start != run.caret
+            || ms.saturating_sub(run.last_ms) > MERGE_PAUSE_MS
+            || run.keys >= MERGE_MAX_KEYS
+        {
+            return false;
+        }
+        let mut ids = run.base_ids.clone();
+        let hints = blocks::Hints { before: Some(&run.base_pos), after: Some(&c.after_sel.focus) };
+        let ops = blocks::rebind(&mut ids, &run.base, c.after, hints);
+        let [o] = ops.as_slice() else { return false };
+        let fits = ids.stories == self.ids.stories
+            && o.story == run.story
+            && o.before.len() == 1
+            && o.after.len() == 1
+            && o.before.first().is_some_and(|b| b.id == run.block)
+            && text_rule_rebuilds(o)
+            && match kind {
+                RunKind::Insert => {
+                    o.deleted.is_empty() && o.offset == run.offset && o.inserted.starts_with(&run.text) && o.inserted.len() > run.text.len()
+                }
+                RunKind::Backspace => {
+                    o.inserted.is_empty()
+                        && o.offset < run.offset
+                        && o.offset + o.deleted.len() == run.offset + run.text.len()
+                        && o.deleted.ends_with(&run.text)
+                }
+                RunKind::Forward => {
+                    o.inserted.is_empty() && o.offset == run.offset && o.deleted.starts_with(&run.text) && o.deleted.len() > run.text.len()
+                }
+            };
+        if !fits {
+            return false;
+        }
+        let json_ops = self.json_ops(c.command, c.kind, &ops, &run.base, c.after);
+        if json_ops.len() != 1 {
+            return false;
+        }
+        let (keys, prior) = (run.keys + 1, run.prior.clone());
+        let (text, offset) = (if kind == RunKind::Insert { o.inserted.clone() } else { o.deleted.clone() }, o.offset);
+        let Some(old) = self.events.pop() else { return false };
+        self.prior = prior;
+        let mut next = self.open.take();
+        self.reuse = Some(old);
+        self.push_event(c.command, c.kind, &ops, json_ops, None, c.after, ms, Some(Typing { end_ms: ms, keys }));
+        if let Some(r) = next.as_mut() {
+            r.caret = c.after_sel.focus.clone();
+            r.text = text;
+            r.offset = offset;
+            r.last_ms = ms;
+            r.keys = keys;
+        }
+        self.open = next.filter(|r| !(r.kind == RunKind::Insert && ends_word(&r.text)));
+        true
+    }
+
+    /// An event's ops as JSON: typing carries its text only, when the plain-text rule rebuilds its
+    /// paragraphs exactly; anything else carries the changed paragraphs too.
+    fn json_ops(&self, command: &str, kind: CommitKind, ops: &[Op], before: &Document, after: &Document) -> Vec<Value> {
+        let keyboard = classify(command, kind, ops).1 == "keyboard";
         let mut json_ops: Vec<Value> = ops.iter().map(|o| op_json(command, o, !keyboard || !text_rule_rebuilds(o), after)).collect();
         json_ops.extend(part_ops(command, before, after));
         if json_ops.is_empty() {
             // Only something outside the stories changed (styles, comments, settings…).
             json_ops.push(json!({"op": "nonStory", "command": command}));
         }
-        self.push_event(command, kind, &ops, json_ops, gesture, after);
+        json_ops
     }
 
-    fn push_event(&mut self, command: &str, kind: CommitKind, ops: &[Op], json_ops: Vec<Value>, gesture: Option<&Gesture>, after: &Document) {
+    #[allow(clippy::too_many_arguments)]
+    fn push_event(
+        &mut self,
+        command: &str,
+        kind: CommitKind,
+        ops: &[Op],
+        json_ops: Vec<Value>,
+        gesture: Option<&Gesture>,
+        after: &Document,
+        ms: u64,
+        typing: Option<Typing>,
+    ) {
+        self.open = None;
         let (ty, origin) = classify(command, kind, ops);
-        self.seq = self.seq.saturating_add(1);
+        // A joined event keeps what it started with: its id, seq, and when it began.
+        let old = self.reuse.take();
+        let keep = |k: &str| old.as_ref().and_then(|o| o.get(k)).cloned();
+        if old.is_none() {
+            self.seq = self.seq.saturating_add(1);
+        }
         let anchor = |a: Option<&Anchor>, state: &str| match a {
             Some(a) => json!({"blockId": a.block_id, "startOffset": a.start, "endOffset": a.end, "contextHash": a.context_hash, "state": state}),
             None => Value::Null,
         };
         let one = (ops.len() == 1).then(|| ops.first()).flatten();
         let mut e = Map::new();
-        e.insert("eventId".into(), json!(self.env.uuid()));
+        e.insert("eventId".into(), keep("eventId").unwrap_or_else(|| json!(self.env.uuid())));
         e.insert("attemptId".into(), json!(self.config.attempt_id));
         e.insert("sessionSpanId".into(), json!(self.config.session_span_id));
         e.insert("seq".into(), json!(self.seq));
@@ -301,8 +496,12 @@ impl State {
         e.insert("fieldId".into(), json!(self.config.field_id));
         e.insert("type".into(), json!(ty));
         e.insert("origin".into(), json!(origin));
-        e.insert("atLocalIso".into(), json!(self.env.now_iso()));
-        e.insert("elapsedMonotonicMs".into(), json!(self.env.monotonic_ms()));
+        e.insert("atLocalIso".into(), keep("atLocalIso").unwrap_or_else(|| json!(self.env.now_iso())));
+        e.insert("elapsedMonotonicMs".into(), keep("elapsedMonotonicMs").unwrap_or_else(|| json!(ms)));
+        if let Some(t) = typing {
+            e.insert("endMonotonicMs".into(), json!(t.end_ms));
+            e.insert("keyCount".into(), json!(t.keys));
+        }
         let gesture_id = gesture.and_then(|g| g.id.clone());
         e.insert("gestureId".into(), json!(gesture_id));
         let first = ops.first();
@@ -337,6 +536,26 @@ impl State {
         let d = document_digest(&mut cache, &old, doc);
         self.digests = cache;
         d
+    }
+}
+
+/// Whether the commit is a single key press of typing, a Backspace or a Delete, in one paragraph
+/// and with nothing selected: what a typing event is made of. Paste, selection deletes, undo and
+/// every other command are never one of these.
+fn typing_key(c: &Commit<'_>, ops: &[Op]) -> Option<RunKind> {
+    let [o] = ops else { return None };
+    if c.kind != CommitKind::Edit || c.gesture.is_some() || !c.before_sel.is_collapsed() {
+        return None;
+    }
+    if !(o.siblings && o.before.len() == 1 && o.after.len() == 1 && o.before.first()?.id == o.after.first()?.id && text_rule_rebuilds(o)) {
+        return None;
+    }
+    let plain = |t: &str| !t.is_empty() && t.chars().count() <= MERGE_MAX_KEY_CHARS && !t.contains(PARA_MARK);
+    match c.command {
+        "text.insert" if o.deleted.is_empty() && plain(&o.inserted) => Some(RunKind::Insert),
+        "text.backspace" if o.inserted.is_empty() && plain(&o.deleted) => Some(RunKind::Backspace),
+        "text.delete" if o.inserted.is_empty() && plain(&o.deleted) => Some(RunKind::Forward),
+        _ => None,
     }
 }
 

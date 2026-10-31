@@ -125,10 +125,21 @@ impl Script {
 
 /// The sample submission, as InkWitness Write saves it: its name and DOCX bytes.
 pub fn docx() -> (String, Vec<u8>) {
+    docx_with(true)
+}
+
+/// The same session recorded one event per key press, as a version 1.0 writer did: the old-file
+/// fixture the review page still has to read.
+pub fn docx_per_letter() -> (String, Vec<u8>) {
+    docx_with(false)
+}
+
+fn docx_with(merge_typing: bool) -> (String, Vec<u8>) {
     let ms = Arc::new(AtomicU64::new(0));
     let mut app = WordApp::new(Session::new(Document::new()), Services::default());
     let who = crate::writer::Identity { student: "Example Student".into(), assignment: "TOK essay (sample)".into() };
-    crate::writer::attach_for(&mut app, Box::new(Clock { ms: ms.clone(), ids: 0 }), Box::new(|| START.to_string()), Some(who));
+    let recorder = crate::writer::attach_for(&mut app, Box::new(Clock { ms: ms.clone(), ids: 0 }), Box::new(|| START.to_string()), Some(who));
+    recorder.set_merge_typing(merge_typing);
     let mut s = Script { app, ms, seed: 0x1D_u64 };
     s.wait(4_000);
     s.type_text(OPENING);

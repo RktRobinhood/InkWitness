@@ -71,28 +71,290 @@ fn text_185() -> String {
     s
 }
 
+/// A clock the test moves by hand, to make pauses.
+#[derive(Clone)]
+struct Clock(std::sync::Arc<std::sync::atomic::AtomicU64>);
+
+impl Clock {
+    fn wait(&self, ms: u64) {
+        self.0.fetch_add(ms, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+struct ClockEnv {
+    clock: Clock,
+    ids: u64,
+}
+
+impl Env for ClockEnv {
+    fn now_iso(&mut self) -> String {
+        "2026-10-28T09:00:00Z".into()
+    }
+    fn monotonic_ms(&mut self) -> u64 {
+        self.clock.0.fetch_add(10, std::sync::atomic::Ordering::SeqCst) + 10
+    }
+    fn uuid(&mut self) -> String {
+        self.ids += 1;
+        let mut b = [0u8; 16];
+        b[8..].copy_from_slice(&self.ids.to_be_bytes());
+        uuid_v4(b)
+    }
+}
+
+fn with_clock() -> (Session, Recorder, Clock) {
+    let clock = Clock(std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)));
+    let mut s = Session::new(Document::new());
+    let r = Recorder::attach(&mut s, Box::new(ClockEnv { clock: clock.clone(), ids: 0 }), config());
+    (s, r, clock)
+}
+
+/// The inserted text of each event.
+fn inserted(r: &Recorder) -> Vec<String> {
+    r.events().iter().map(|e| e["insertedText"].as_str().unwrap_or_default().to_string()).collect()
+}
+
+/// Every event replays to its recorded digest and the chain links.
+fn assert_replays(r: &Recorder, s: &Session) {
+    let evidence = json!({"events": r.events(), "checkpoints": r.checkpoints(), "export": {"recordedStateDigest": r.state_digest(&s.doc)}});
+    let rp = replay::Replay::from_evidence(&evidence).unwrap_or_else(|e| panic!("{e}"));
+    let mut end = rp.verify_all().unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(end.digest(), r.state_digest(&s.doc));
+    let mut prior = sha256_hex(DOMAIN_GENESIS, ATTEMPT.as_bytes());
+    for e in r.events() {
+        assert_eq!(e["priorEventDigest"], prior.as_str());
+        let mut bare = e.as_object().cloned().unwrap_or_default();
+        bare.remove("eventDigest");
+        prior = sha256_hex(DOMAIN_EVENT, canonical_json(&Value::Object(bare)).as_bytes());
+        assert_eq!(e["eventDigest"], prior.as_str());
+    }
+}
+
 #[test]
-fn typing_a_paragraph_gives_one_insert_per_keystroke() {
+fn typing_a_paragraph_gives_one_event_per_word() {
     let (mut s, r) = fresh();
     type_keys(&mut s, "Knowledge matters");
     let ev = r.events();
-    assert_eq!(ev.len(), 17);
-    for (i, (e, c)) in ev.iter().zip("Knowledge matters".chars()).enumerate() {
+    assert_eq!(inserted(&r), ["Knowledge ", "matters"]);
+    for (i, e) in ev.iter().enumerate() {
         assert_eq!(e["seq"], i + 1);
         assert_eq!(e["type"], "text_insert");
         assert_eq!(e["origin"], "keyboard");
-        assert_eq!(e["insertedText"], c.to_string());
         assert_eq!(e["deletedText"], "");
         assert_eq!(e["gestureId"], Value::Null);
         assert_eq!(e["afterAnchor"]["blockId"], "b1");
-        assert_eq!(e["afterAnchor"]["startOffset"], i);
-        assert_eq!(e["afterAnchor"]["endOffset"], i + 1);
-        assert_eq!(e["beforeAnchor"]["startOffset"], i);
-        assert_eq!(e["beforeAnchor"]["endOffset"], i);
         assert_eq!(e["ops"].as_array().map(Vec::len), Some(1));
         assert!(e["ops"][0].get("content").is_none(), "typing carries its text only");
+        assert!(e["endMonotonicMs"].as_u64() > e["elapsedMonotonicMs"].as_u64(), "it spans its key presses");
     }
+    assert_eq!(ev[0]["keyCount"], 10);
+    assert_eq!(ev[1]["keyCount"], 7);
+    assert_eq!(ev[0]["beforeAnchor"]["startOffset"], 0);
+    assert_eq!(ev[0]["afterAnchor"]["startOffset"], 0);
+    assert_eq!(ev[0]["afterAnchor"]["endOffset"], 10);
+    assert_eq!(ev[1]["beforeAnchor"]["startOffset"], 10);
+    assert_eq!(ev[1]["afterAnchor"]["endOffset"], 17);
+    // It started at the first key press and ends at the last: ten keys, ten ms apart.
+    assert_eq!(ev[0]["endMonotonicMs"].as_u64().unwrap_or(0) - ev[0]["elapsedMonotonicMs"].as_u64().unwrap_or(0), 90);
     assert_eq!(body(&s), "Knowledge matters");
+    assert_replays(&r, &s);
+}
+
+#[test]
+fn a_merged_event_ends_at_a_space_or_punctuation() {
+    let (mut s, r) = fresh();
+    type_keys(&mut s, "Hi, you. Ok");
+    assert_eq!(inserted(&r), ["Hi,", " you.", " Ok"], "a space after punctuation goes with the next word");
+    let (mut s, r) = fresh();
+    type_keys(&mut s, "1 (2)");
+    assert_eq!(inserted(&r), ["1 ", "(2)"], "punctuation alone doesn't end an event");
+    assert_replays(&r, &s);
+}
+
+#[test]
+fn a_merged_event_ends_at_a_pause_over_two_seconds() {
+    let (mut s, r, clock) = with_clock();
+    type_keys(&mut s, "ab");
+    clock.wait(MERGE_PAUSE_MS - 100);
+    type_keys(&mut s, "cd");
+    clock.wait(MERGE_PAUSE_MS + 1);
+    type_keys(&mut s, "ef");
+    assert_eq!(inserted(&r), ["abcd", "ef"], "a pause of 1.9 s joins, one over 2 s doesn't");
+    assert_eq!(body(&s), "abcdef");
+    assert_replays(&r, &s);
+}
+
+#[test]
+fn a_merged_event_ends_when_the_caret_moves() {
+    let (mut s, r) = fresh();
+    type_keys(&mut s, "ab");
+    run(&mut s, "caret.left", json!({}));
+    type_keys(&mut s, "c");
+    run(&mut s, "caret.right", json!({}));
+    type_keys(&mut s, "d");
+    assert_eq!(body(&s), "acbd");
+    assert_eq!(inserted(&r), ["ab", "c", "d"]);
+    assert_replays(&r, &s);
+}
+
+#[test]
+fn a_merged_event_ends_when_any_other_command_runs() {
+    let (mut s, r) = fresh();
+    type_keys(&mut s, "ab");
+    run(&mut s, "text.newParagraph", json!({}));
+    type_keys(&mut s, "cd");
+    run(&mut s, "edit.undo", json!({}));
+    type_keys(&mut s, "e");
+    let types: Vec<String> = r.events().iter().map(|e| e["type"].as_str().unwrap_or_default().to_string()).collect();
+    assert_eq!(types.len(), 5, "{types:?}");
+    assert_eq!(types[3], "undo");
+    assert_eq!(inserted(&r)[0], "ab");
+    assert_eq!(inserted(&r)[2], "cd");
+    assert_replays(&r, &s);
+}
+
+#[test]
+fn backspaces_in_a_row_merge_and_forward_deletes_too() {
+    let (mut s, r) = fresh();
+    type_keys(&mut s, "abcdef");
+    for _ in 0..3 {
+        run(&mut s, "text.backspace", json!({}));
+    }
+    run(&mut s, "caret.docStart", json!({}));
+    for _ in 0..2 {
+        run(&mut s, "text.delete", json!({}));
+    }
+    assert_eq!(body(&s), "c");
+    let ev = r.events();
+    let deleted: Vec<&str> = ev.iter().map(|e| e["deletedText"].as_str().unwrap_or_default()).collect();
+    assert_eq!(deleted, ["", "def", "ab"]);
+    assert_eq!(ev[1]["type"], "text_delete");
+    assert_eq!(ev[1]["keyCount"], 3);
+    assert_eq!(ev[2]["keyCount"], 2);
+    assert_eq!(ev[1]["beforeAnchor"]["startOffset"], 3, "the deleted range is where the three backspaces went");
+    assert_eq!(ev[1]["beforeAnchor"]["endOffset"], 6);
+    assert_replays(&r, &s);
+}
+
+#[test]
+fn a_long_run_without_a_space_is_cut_so_it_never_looks_like_a_large_insertion() {
+    let (mut s, r) = fresh();
+    type_keys(&mut s, &"x".repeat(100));
+    let ev = r.events();
+    assert_eq!(ev.len(), 4, "32 + 32 + 32 + 4 keys");
+    assert!(ev.iter().all(|e| e["keyCount"].as_u64().is_some_and(|k| k <= MERGE_MAX_KEYS)));
+    assert_eq!(ev.iter().map(|e| e["keyCount"].as_u64().unwrap_or(0)).sum::<u64>(), 100);
+    assert_replays(&r, &s);
+}
+
+/// 1,500 words of synthetic prose: sentences of about 15 words, commas, and a new paragraph
+/// every few sentences.
+fn essay_1500() -> Vec<String> {
+    const WORDS: [&str; 24] = [
+        "knowledge",
+        "the",
+        "of",
+        "history",
+        "evidence",
+        "claim",
+        "scientists",
+        "and",
+        "to",
+        "because",
+        "perspective",
+        "a",
+        "is",
+        "that",
+        "shape",
+        "method",
+        "historians",
+        "observation",
+        "in",
+        "what",
+        "we",
+        "accept",
+        "as",
+        "true",
+    ];
+    let mut seed = 7u64;
+    let mut next = |n: usize| {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 33) as usize % n
+    };
+    let mut out = Vec::new();
+    let mut sentence = Vec::new();
+    for i in 1..=1500 {
+        let mut w = WORDS[next(WORDS.len())].to_string();
+        if sentence.is_empty() {
+            w = w[..1].to_uppercase() + &w[1..];
+        }
+        if i % 15 == 0 {
+            w.push('.');
+        } else if i % 7 == 0 {
+            w.push(',');
+        }
+        sentence.push(w);
+        if i % 15 == 0 {
+            out.push(sentence.join(" "));
+            sentence.clear();
+        }
+    }
+    out
+}
+
+#[test]
+fn a_1500_word_essay_has_about_six_times_fewer_events() {
+    let size = |merge: bool| {
+        let (mut s, r) = fresh();
+        r.set_merge_typing(merge);
+        for (i, sentence) in essay_1500().iter().enumerate() {
+            type_keys(&mut s, sentence);
+            type_keys(&mut s, if i % 4 == 3 { "\n" } else { " " });
+        }
+        let events = r.events();
+        let bytes = serde_json::to_vec(&events).map_or(0, |v| v.len());
+        // The size of the DOCX the writer would save.
+        let attempt = evidence::Attempt {
+            assignment_id: "essay".into(),
+            student_display_name: "Example Student".into(),
+            identity_entered_by_student: true,
+            entered_at_local: "2026-10-28T09:00:00Z".into(),
+            policy_version: "test".into(),
+            acknowledged_at_local: "2026-10-28T09:00:00Z".into(),
+            writer_version: "test".into(),
+            started_at_local: "2026-10-28T09:00:00Z".into(),
+        };
+        let payload = serde_json::to_vec(&evidence::document(&r, &s.doc, &attempt, "2026-10-28T10:00:00Z")).unwrap_or_default();
+        // For a full JSON Schema validator outside Rust: `INKWITNESS_DUMP_EVIDENCE=<dir>`.
+        if let Ok(dir) = std::env::var("INKWITNESS_DUMP_EVIDENCE") {
+            let _ = std::fs::write(format!("{dir}/essay-{}.json", if merge { "1.1" } else { "1.0" }), &payload);
+        }
+        let mut doc = s.doc.clone();
+        assert!(envelope::embed(&mut doc, ATTEMPT, &payload).is_ok());
+        let docx = wordcraft_engine::io::save_bytes("essay.docx", &doc).map_or(0, |b| b.len());
+        (events.len(), bytes, docx)
+    };
+    let (old, new) = (size(false), size(true));
+    eprintln!(
+        "1,500 words: {} events, {} bytes of events, {} byte DOCX per letter; {} events, {} bytes, {} byte DOCX per word",
+        old.0, old.1, old.2, new.0, new.1, new.2
+    );
+    assert!(old.0 >= 5 * new.0, "{} events per letter, {} per word", old.0, new.0);
+    assert!(old.1 >= 3 * new.1, "{} bytes per letter, {} per word", old.1, new.1);
+}
+
+#[test]
+fn selection_deletes_and_typing_over_a_selection_stay_one_event_each() {
+    let (mut s, r) = fresh();
+    type_keys(&mut s, "abc def");
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    type_keys(&mut s, "x");
+    let ev = r.events();
+    assert_eq!(ev[3]["deletedText"], "Abc def");
+    assert!(ev[3].get("keyCount").is_none(), "a selection delete isn't typing");
+    assert!(ev[1].get("keyCount").is_none(), "nor is a replacement made by autocorrect");
+    assert_eq!(ev.len(), 5);
+    assert_replays(&r, &s);
 }
 
 #[test]
@@ -109,7 +371,7 @@ fn paste_of_185_characters_links_its_gesture_to_exactly_its_operations() {
     assert_eq!(body(&s), format!("Intro {text}"));
 
     let ev = r.events();
-    assert_eq!(ev.len(), 7, "six keystrokes and exactly one paste event");
+    assert_eq!(ev.len(), 2, "the typed word and exactly one paste event");
     let pastes: Vec<&Value> = ev.iter().filter(|e| e["type"] == "paste").collect();
     assert_eq!(pastes.len(), 1);
     let e = pastes[0];
@@ -428,7 +690,7 @@ fn events_match_the_evidence_schema() {
     run(&mut s, "edit.redo", json!({}));
     let ev = r.events();
     let types: Vec<&str> = ev.iter().filter_map(|e| e["type"].as_str()).collect();
-    assert_eq!(types, ["text_insert", "text_insert", "structure_change", "paste", "format_change", "cut", "undo", "redo"]);
+    assert_eq!(types, ["text_insert", "structure_change", "paste", "format_change", "cut", "undo", "redo"]);
     for e in &ev {
         check_event(&schema, e);
     }

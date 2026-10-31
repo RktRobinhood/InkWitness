@@ -544,6 +544,9 @@ pub fn event_card(l: &Loaded, seq: u64, excerpt: Option<String>) -> Option<Card>
     let deleted = s("deletedText").unwrap_or_default();
     let mut details = vec![("Event".into(), format!("{seq} of {}", l.replay.last_seq())), ("Origin".into(), s("origin").unwrap_or("—").to_string())];
     details.push(("gestureId".into(), s("gestureId").unwrap_or("none").to_string()));
+    if let Some(line) = crate::steps::typing_line(e) {
+        details.push(("Typing".into(), line));
+    }
     if ty == "paste" {
         let formats = match e.get("clipboardTypes").and_then(Value::as_array) {
             Some(v) if !v.is_empty() => v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "),

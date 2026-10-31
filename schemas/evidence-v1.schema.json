@@ -24,7 +24,8 @@
       "const": "urn:workalone:evidence"
     },
     "schemaVersion": {
-      "const": "1.0"
+      "enum": ["1.0", "1.1"],
+      "description": "1.1 adds the optional event fields endMonotonicMs and keyCount; 1.0 files are read as they are."
     },
     "writerVersion": {
       "type": "string"
@@ -438,6 +439,8 @@
           "type": "string",
           "format": "date-time"
         },
+        "endMonotonicMs": {"type": "number", "minimum": 0, "description": "1.1, optional: when the last key press of a merged typing event was made (elapsedMonotonicMs is when the first was)."},
+        "keyCount": {"type": "integer", "minimum": 1, "description": "1.1, optional: how many key presses a merged typing event holds."},
         "elapsedMonotonicMs": {
           "type": "number",
           "minimum": 0

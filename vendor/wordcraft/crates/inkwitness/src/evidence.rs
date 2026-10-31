@@ -40,7 +40,7 @@ fn body(r: &Recorder, doc: &Document, a: &Attempt, exported_at_local: &str) -> V
     let section = config.section_id.clone().unwrap_or_else(|| "main".into());
     json!({
         "schema": "urn:workalone:evidence",
-        "schemaVersion": "1.0",
+        "schemaVersion": if r.merges_typing() { "1.1" } else { "1.0" },
         "writerVersion": a.writer_version,
         "assignmentId": a.assignment_id,
         "attemptId": config.attempt_id,

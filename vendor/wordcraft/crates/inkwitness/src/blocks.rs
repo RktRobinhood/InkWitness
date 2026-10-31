@@ -79,7 +79,7 @@ fn same(a: &Para<'_>, b: &Para<'_>) -> bool {
 }
 
 /// Hands out block ids: `b1`, `b2`… in the order blocks first appear.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Ids {
     next: u64,
     /// Each story's paragraph ids, in document order (aligned with [`paragraphs`]).
