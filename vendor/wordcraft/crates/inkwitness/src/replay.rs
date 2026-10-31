@@ -110,6 +110,11 @@ impl State {
         State { seq: 0, doc, ids: BTreeMap::new(), digests: HashMap::new() }
     }
 
+    /// Each story's paragraph ids, in document order, by story.
+    pub(crate) fn story_ids(&self) -> &BTreeMap<StoryRef, Vec<String>> {
+        &self.ids
+    }
+
     /// Each story's paragraph ids, in document order.
     pub fn block_ids(&self) -> BTreeMap<String, Vec<String>> {
         self.ids.iter().map(|(s, ids)| (story_key(*s), ids.clone())).collect()
@@ -250,7 +255,7 @@ fn story_blocks_mut(doc: &mut Document, s: StoryRef) -> Option<&mut Blocks> {
     }
 }
 
-fn parse_story(key: &str) -> Option<StoryRef> {
+pub(crate) fn parse_story(key: &str) -> Option<StoryRef> {
     if key == "body" {
         return Some(StoryRef::Body);
     }

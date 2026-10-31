@@ -14,6 +14,7 @@ pub mod blocks;
 pub mod envelope;
 pub mod evidence;
 pub mod replay;
+pub mod resume;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -187,6 +188,28 @@ struct State {
     /// Model states to replay from (`checkpoints[]`): one when the recorder attached, and one
     /// whenever a command replaced the document (an import, New, Open).
     checkpoints: Vec<Value>,
+    /// Who the writer is writing as, if the student has said: a file's history is continued only
+    /// when it is this student's.
+    who: Option<resume::Who>,
+    /// How the session this recorder is on began, once a file was opened (see [`Recorder::opened`]).
+    opened: Option<Opened>,
+    /// Plain-words notes for the student about what opening a file did.
+    notices: Vec<String>,
+}
+
+/// How a session began when the writer opened a file: the parts of the attempt's record that
+/// are not events. The writer copies them into the evidence it saves.
+#[derive(Clone, Debug)]
+pub struct Opened {
+    pub reason: evidence::SessionReason,
+    pub started_at_local: String,
+    /// The sessions before this one, oldest first.
+    pub earlier_sessions: Vec<evidence::EarlierSession>,
+    /// Spans carried over from the file, and any this opening added.
+    pub other_unobserved: Vec<Value>,
+    /// The identity a continued history records: (student, assignment, entered at, entered by the
+    /// student). `None` when the attempt is new.
+    pub identity: Option<(String, String, String, bool)>,
 }
 
 impl Recorder {
@@ -209,6 +232,9 @@ impl Recorder {
             merge: true,
             reuse: None,
             checkpoints,
+            who: None,
+            opened: None,
+            notices: Vec::new(),
         };
         Recorder { state: Arc::new(Mutex::new(state)) }
     }
@@ -223,6 +249,22 @@ impl Recorder {
     /// it records a file the way a 1.0 writer did.
     pub fn merges_typing(&self) -> bool {
         self.lock().merge
+    }
+
+    /// Say who the writer is writing as. A file opened afterwards continues only a history of this
+    /// student and assignment.
+    pub fn set_identity(&self, student: &str, assignment: &str) {
+        self.lock().who = Some(resume::Who { student: student.trim().to_string(), assignment: assignment.trim().to_string() });
+    }
+
+    /// How the current session began, once a file was opened; `None` until then.
+    pub fn opened(&self) -> Option<Opened> {
+        self.lock().opened.clone()
+    }
+
+    /// The notes for the student that opening files made since the last call.
+    pub fn take_notices(&self) -> Vec<String> {
+        std::mem::take(&mut self.lock().notices)
     }
 
     /// A recorder attached to `session`, which now reports every committed edit to it.
@@ -329,9 +371,15 @@ fn classify(command: &str, kind: CommitKind, ops: &[Op]) -> (&'static str, &'sta
 
 impl State {
     fn commit(&mut self, c: &Commit<'_>) {
+        // An opened file has an attempt of its own: it continues the history the file carries or
+        // starts a new one, and never goes on in the attempt of the page it was opened on.
+        let opened = c.kind == CommitKind::Replaced && c.command == "file.open";
+        if opened && !self.open_file(c) {
+            return;
+        }
         // A change that didn't come through `Session::run` (the front end edited the document
         // directly): recorded as its own event of unknown origin, so the ids stay true.
-        if !self.last.same_content(c.before) {
+        if !opened && !self.last.same_content(c.before) {
             let before = std::mem::take(&mut self.last);
             let ops = blocks::rebind(&mut self.ids, &before, c.before, blocks::Hints::default());
             let ms = self.env.monotonic_ms();
@@ -383,6 +431,76 @@ impl State {
         self.push_event(c.command, c.kind, &ops, json_ops, c.gesture, c.after, ms, typing);
         // A word's last character ends its event.
         self.open = run.filter(|r| !(r.kind == RunKind::Insert && ends_word(&r.text)));
+    }
+
+    /// Take up the file just opened (`doc` is `c.after`): continue the history it carries when
+    /// that history is whole and the student's, otherwise start a new attempt that holds only
+    /// this file's text, marked as already there. Returns whether the opening still needs its
+    /// `import_document` event; it doesn't when the file is exactly where the history left off.
+    fn open_file(&mut self, c: &Commit<'_>) -> bool {
+        let now = self.env.now_iso();
+        let session = self.env.uuid();
+        self.digests.clear();
+        self.open = None;
+        self.reuse = None;
+        match resume::read(c.after, self.who.as_ref()) {
+            resume::Opening::Continue(k) => {
+                let k = *k;
+                self.config.attempt_id = k.attempt_id.clone();
+                self.config.session_span_id = session.clone();
+                self.seq = u64::try_from(k.events.len()).unwrap_or(u64::MAX);
+                self.prior = k.prior.clone();
+                self.ids = blocks::Ids::resumed(k.ids.clone(), k.used_ids);
+                self.events = k.events.clone();
+                self.checkpoints = k.checkpoints.clone();
+                self.last = c.after.clone();
+                let same_text = k.recorded_text == c.after.plain_text(wordcraft_doc::StoryRef::Body);
+                let fits = blocks::stories(c.after).iter().all(|(s, bl)| self.ids.stories.get(s).map_or(0, Vec::len) == blocks::paragraphs(bl).len());
+                let same_state = fits && self.state_digest(c.after) == k.recorded_digest;
+                let mut spans = k.carried_spans.clone();
+                let mut notes = vec![format!(
+                    "Continuing the history in this file: {} earlier session{} kept, and this one starts after them.",
+                    k.sessions.len(),
+                    if k.sessions.len() == 1 { "" } else { "s" }
+                )];
+                if !same_text {
+                    let n = spans.iter().filter(|x| x.get("kind").and_then(Value::as_str) == Some("change-outside-writer")).count() + 1;
+                    spans.push(resume::outside_change(n, &k, &session, &now, &self.config.field_id));
+                    notes.push("The text in this file is not what InkWitness last recorded, so the difference is marked as not observed.".into());
+                }
+                self.notices.extend(notes);
+                self.opened = Some(Opened {
+                    reason: evidence::SessionReason::Resume,
+                    started_at_local: now,
+                    earlier_sessions: k.sessions,
+                    other_unobserved: spans,
+                    identity: Some((k.student, k.assignment, k.entered_at_local, k.entered_by_student)),
+                });
+                !same_state
+            }
+            resume::Opening::Fresh(f) => {
+                self.config.attempt_id = self.env.uuid();
+                self.config.session_span_id = session;
+                self.seq = 0;
+                self.prior = sha256_hex(DOMAIN_GENESIS, self.config.attempt_id.as_bytes());
+                // It starts from a blank page: nothing of the attempt on the page travels with it.
+                let blank = Document::new();
+                self.ids = blocks::Ids::default();
+                self.ids.assign_all(&blank);
+                self.events.clear();
+                self.checkpoints = vec![replay::checkpoint_json(0, &blank, &self.ids.keyed())];
+                self.last = blank;
+                self.notices.push(resume::notice(&f));
+                self.opened = Some(Opened {
+                    reason: evidence::SessionReason::Import,
+                    started_at_local: now,
+                    earlier_sessions: Vec::new(),
+                    other_unobserved: Vec::new(),
+                    identity: None,
+                });
+                true
+            }
+        }
     }
 
     /// Join this key press to the open typing run, if it continues it: the same kind of key,
@@ -737,5 +855,7 @@ fn write_canonical(v: &Value, out: &mut String) {
 mod tests;
 #[cfg(test)]
 mod tests_replay;
+#[cfg(test)]
+mod tests_resume;
 #[cfg(test)]
 mod tests_sessions;

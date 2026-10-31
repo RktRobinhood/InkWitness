@@ -98,16 +98,17 @@ pub fn start() {
                     if !sample && !review {
                         app.start_screen();
                     }
+                    let mut recorder = None;
                     let review = if review {
                         // A viewer with the Critic palette: no editing control on the page (FAL-448).
                         wordcraft_inkwitness_review::toolbar::setup(&mut app);
                         Some(wordcraft_inkwitness_review::review::Review::default())
                     } else {
-                        wordcraft_inkwitness_review::writer::attach(
+                        recorder = Some(wordcraft_inkwitness_review::writer::attach(
                             &mut app,
                             Box::new(wordcraft_inkwitness_review::web::WebEnv::new()),
                             Box::new(wordcraft_inkwitness_review::web::now_iso),
-                        );
+                        ));
                         None
                     };
                     // The host's name for the user signs this visit's work, but isn't stored as the
@@ -119,7 +120,7 @@ pub fn start() {
                         crate::host::Bridge::set_author(&mut app, &author);
                         prefs.keep_own_author(&app.session.author, &own);
                     }
-                    Ok(Box::new(WebShell { app, inbox, messages, prefs, review }))
+                    Ok(Box::new(WebShell { app, inbox, messages, prefs, review, recorder }))
                 }),
             )
             .await;
@@ -156,6 +157,8 @@ struct WebShell {
     prefs: crate::prefs::PrefsSync,
     /// InkWitness: the `/review/` page's replay (`None` on the writer).
     review: Option<wordcraft_inkwitness_review::review::Review>,
+    /// InkWitness: the writer's recorder, which says what opening a file did to the history.
+    recorder: Option<wordcraft_inkwitness_review::writer::Recorder>,
 }
 
 fn local_storage() -> Option<web_sys::Storage> {
@@ -187,6 +190,12 @@ impl eframe::App for WebShell {
         let msgs = std::mem::take(&mut *self.messages.borrow_mut());
         for msg in msgs {
             self.app.status(msg);
+        }
+        // What opening a file did to the history (continued it, or began a new attempt), said once.
+        if let Some(recorder) = &self.recorder {
+            for note in recorder.take_notices() {
+                self.app.status(note);
+            }
         }
         // The review page takes opened and dropped files itself: they are reviewed, never
         // opened for editing.

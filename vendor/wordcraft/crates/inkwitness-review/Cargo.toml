@@ -20,6 +20,7 @@ chrono = { workspace = true }
 
 [dev-dependencies]
 egui_kittest = { workspace = true }
+base64 = { workspace = true }
 
 # The browser's clock and random ids for the recorder, the review page's status region, and
 # the review page's remembered choices (localStorage).

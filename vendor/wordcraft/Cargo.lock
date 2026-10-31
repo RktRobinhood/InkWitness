@@ -6716,6 +6716,7 @@ dependencies = [
 name = "wordcraft-inkwitness-review"
 version = "0.11.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "egui",
  "egui_kittest",
