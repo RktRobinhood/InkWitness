@@ -1148,3 +1148,44 @@ fn the_rail_takes_the_teachers_name_and_starts_editing() {
     assert!(!h.state().0.editing(&h.state().1));
     assert!(h.state().1.session.read_only());
 }
+
+/// Write, save, reopen, write, save (GH #9): the reviewer plays both sessions in order with the
+/// boundary shown, and the chain is consistent.
+#[test]
+fn a_reopened_file_reviews_as_both_sessions() {
+    use base64::Engine as _;
+    let mut first = WordApp::new(Session::new(Document::new()), Services::default());
+    super::writer::attach(&mut first, Box::new(TestEnv { ms: 0, ids: 0 }), Box::new(|| "2026-10-28T09:05:00Z".to_string()));
+    for c in "Monday. ".chars() {
+        run(&mut first, "text.insert", json!({"text": c.to_string()}));
+    }
+    let monday = saved(&first);
+
+    let mut again = WordApp::new(Session::new(Document::new()), Services::default());
+    let recorder = super::writer::attach(&mut again, Box::new(TestEnv { ms: 0, ids: 100 }), Box::new(|| "2026-10-30T09:05:00Z".to_string()));
+    let data = base64::engine::general_purpose::STANDARD.encode(&monday);
+    run(&mut again, "file.open", json!({"path": "essay.docx", "data": data}));
+    assert!(recorder.take_notices().iter().any(|n| n.starts_with("Continuing the history")));
+    run(&mut again, "caret.docEnd", json!({}));
+    for c in "Wednesday.".chars() {
+        run(&mut again, "text.insert", json!({"text": c.to_string()}));
+    }
+    let both = saved(&again);
+
+    let l = super::review::load("essay.docx", &both).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(l.consistency, Consistency::Consistent);
+    assert_eq!(l.replayable, l.replay.last_seq());
+    let sessions = l.replay.sessions();
+    assert_eq!(sessions.len(), 2);
+    // The boundary is shown: the gap between them is named, between the last event of Monday and the first of Wednesday.
+    let gaps = l.replay.unobserved_spans();
+    assert_eq!(gaps.len(), 1);
+    let (after, before) = (gaps[0]["afterSeq"].as_u64().unwrap_or(0), gaps[0]["beforeSeq"].as_u64().unwrap_or(0));
+    assert_eq!(before, after + 1);
+    assert_eq!(l.replay.event(after).map(|e| e["sessionSpanId"].clone()), Some(sessions[0]["spanId"].clone()));
+    assert_eq!(l.replay.event(before).map(|e| e["sessionSpanId"].clone()), Some(sessions[1]["spanId"].clone()));
+    // Played in order: Monday's text, then Wednesday's, ending on both.
+    let at = |seq| l.replay.state_at(seq).map(|s| s.doc.plain_text(StoryRef::Body)).unwrap_or_default();
+    assert_eq!(at(after), "Monday. ");
+    assert_eq!(at(l.replayable), "Monday. Wednesday.");
+}

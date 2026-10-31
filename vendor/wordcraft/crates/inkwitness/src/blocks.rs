@@ -92,6 +92,12 @@ impl Ids {
         format!("b{}", self.next)
     }
 
+    /// Ids that carry on from an earlier record: `stories` are the paragraphs' ids now, and no
+    /// new id repeats any `b<n>` up to `used` (ids of paragraphs that have since gone count too).
+    pub fn resumed(stories: BTreeMap<StoryRef, Vec<String>>, used: u64) -> Self {
+        Ids { next: used, stories }
+    }
+
     /// Each story's ids by story name (`body`, `part:<id>`).
     pub fn keyed(&self) -> BTreeMap<String, Vec<String>> {
         self.stories.iter().map(|(s, ids)| (story_key(*s), ids.clone())).collect()

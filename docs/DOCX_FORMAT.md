@@ -64,6 +64,7 @@ A client-embedded key, static JavaScript secret or locally generated self-signat
 - If a later Word save preserves Custom XML, retain prior writing-day history. It is **read-only evidence**, not a continuously updated source of new edits.
 - Word's own revisions after export may be displayed separately, if present, but are not a replacement for observed InkWitness edit events.
 - If a file is reimported to `/write/`, begin a **new recorded session span**. Imported prior text that lacks observable history is an `unobserved_import` snapshot. Never backfill fake typing events.
+- A file reopened in `/write/` whose history is whole and the same student's **continues** it: old events and their chain stay as they were, and the new session is appended after them (ADR 0004). If its text no longer matches the last recorded state, the difference is one `change-outside-writer` span, never typing events. A file with no history, a corrupt one, or another student's opens as a **new attempt**.
 - If evidence has been dropped (Word export to RTF/ODT/PDF, certain resaves), show the readable document and label replay unavailable; compare to the school-retained original if permitted.
 
 ## Safety

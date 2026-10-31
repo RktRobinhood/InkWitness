@@ -48,7 +48,7 @@ Unobserved means InkWitness has no record. It does not mean the text is clean, a
 
 ## Consequences
 
-- The recorder is still one session wide: it numbers events from 1 for the session it is attached to. Carrying the earlier sessions' events into a resumed recorder, so that the chain runs across sessions, is GH #9.
+- The recorder is still one session wide: it numbers events from 1 for the session it is attached to. Carrying the earlier sessions' events into a resumed recorder, so that the chain runs across sessions, is done in [ADR 0004](0004-resuming-history.md) (GH #9).
 - Nothing yet shows the spans in the review UI. That is a follow-up on top of `Replay::unobserved_spans()`.
 - Envelope `schemaVersion` (`wa:history`, "1.0") is the wrapper's own version and is unchanged.
 
