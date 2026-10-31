@@ -343,6 +343,8 @@ pub struct Replay {
     events: Vec<Value>,
     checkpoints: Vec<(u64, String, String)>,
     final_digest: Option<String>,
+    sessions: Vec<Value>,
+    unobserved: Vec<Value>,
 }
 
 impl Replay {
@@ -368,7 +370,21 @@ impl Replay {
         }
         checkpoints.sort_by_key(|c| c.0);
         let final_digest = evidence.pointer("/export/recordedStateDigest").and_then(Value::as_str).map(str::to_string);
-        Ok(Replay { events: events.clone(), checkpoints, final_digest })
+        // Files before schema 1.2 have no `unobservedSpans`; they read as having none recorded.
+        let list = |key: &str| evidence.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+        Ok(Replay { events: events.clone(), checkpoints, final_digest, sessions: list("sessionSpans"), unobserved: list("unobservedSpans") })
+    }
+
+    /// The writer sessions (`sessionSpans`), oldest first.
+    pub fn sessions(&self) -> &[Value] {
+        &self.sessions
+    }
+
+    /// The spans InkWitness did not see (`unobservedSpans`, schema 1.2), each with its `label`,
+    /// `afterSeq` and `beforeSeq`. Empty for older files, which says nothing about whether
+    /// anything was unobserved.
+    pub fn unobserved_spans(&self) -> &[Value] {
+        &self.unobserved
     }
 
     /// The events, oldest first (`seq` is the index plus one).

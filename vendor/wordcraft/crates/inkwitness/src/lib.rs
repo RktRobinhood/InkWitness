@@ -737,3 +737,5 @@ fn write_canonical(v: &Value, out: &mut String) {
 mod tests;
 #[cfg(test)]
 mod tests_replay;
+#[cfg(test)]
+mod tests_sessions;

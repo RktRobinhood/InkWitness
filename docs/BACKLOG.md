@@ -128,3 +128,5 @@ FAL-547 one history event per word (2026-10-31, branch `fal-678-word-events`, sc
 - [ ] **V2-6 future assignment types:** staged/multi-question questions and configurable policies, preserving V1 replay and DOCX export.
 
 All of the above are **future development items**. No V2 runtime code belongs in the initial V1 proof of concept.
+
+- **FAL-662 (evidence schema 1.2):** sessions carry `lastSeq` and separate server-time fields (empty in V1); `unobservedSpans` names gaps between sessions, text present at import and outside changes (`docs/adr/0003-sessions-and-unobserved-spans.md`). 1.0 and 1.1 files still validate and replay. Tests: `cargo test -p wordcraft-inkwitness` (tests_sessions), `scripts/validate_starter.py` with `jsonschema`. NOT DONE: carrying events across sessions (GH #9), detecting outside changes (GH #10), showing spans in the review UI.
