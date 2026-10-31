@@ -50,6 +50,8 @@ pub struct Timeline {
     /// Where the writing starts ([`crate::review::writing_starts`]): this event and the ones
     /// before it sit at the start of the scale, and Play starts from it.
     pub first: u64,
+    /// The last event of each step ([`crate::steps::ends`]): a word of typing, or any other event.
+    ends: Vec<u64>,
 }
 
 impl Timeline {
@@ -74,7 +76,37 @@ impl Timeline {
             prev = ms;
         }
         t.total = pos;
+        t.ends = crate::steps::ends(events, upto);
         t
+    }
+
+    /// The last event of each step, in order.
+    pub fn step_ends(&self) -> &[u64] {
+        &self.ends
+    }
+
+    /// The event that ends the step before the one `seq` is in (not back past `first`).
+    pub fn prev_step(&self, seq: u64) -> Option<u64> {
+        if seq <= self.first {
+            return None;
+        }
+        let before = self.ends.partition_point(|&e| e < seq);
+        Some(before.checked_sub(1).and_then(|i| self.ends.get(i)).copied().unwrap_or(seq - 1).max(self.first))
+    }
+
+    /// The event that ends the step after the one `seq` is in (not past `last`).
+    pub fn next_step(&self, seq: u64, last: u64) -> Option<u64> {
+        if seq >= last {
+            return None;
+        }
+        let at = self.ends.partition_point(|&e| e <= seq);
+        Some(self.ends.get(at).copied().unwrap_or(seq + 1).min(last))
+    }
+
+    /// The last step end at or before event `seq`: playback shows whole words, not half of one.
+    fn snap(&self, seq: u64) -> u64 {
+        let at = self.ends.partition_point(|&e| e <= seq);
+        at.checked_sub(1).and_then(|i| self.ends.get(i)).copied().unwrap_or(0)
     }
 
     /// Event `seq`'s place on the scale (0: where the writing starts, or before).
@@ -169,7 +201,7 @@ impl Player {
         if now - self.last_step < 1.0 / STEPS_PER_SECOND {
             return None;
         }
-        let mut due = tl.seq_at(self.clock).min(last);
+        let mut due = tl.snap(tl.seq_at(self.clock).min(last));
         if due <= seq {
             return None;
         }
@@ -212,18 +244,18 @@ pub fn neighbours(flagged: &[u64], seq: u64) -> (Option<u64>, Option<u64>) {
 }
 
 /// The keyboard shortcuts, when no text field has the keyboard: Space or K plays and pauses,
-/// ← and → step one event (not back past `first`, where the writing starts), [ and ] go to the
+/// ← and → step one step: a word of typing, or one other event (not back past `first`, where the writing starts), [ and ] go to the
 /// previous and next flag.
-pub fn shortcuts(ui: &Ui, playing: bool, seq: u64, first: u64, last: u64, flagged: &[u64]) -> Option<DockAction> {
+pub fn shortcuts(ui: &Ui, playing: bool, seq: u64, last: u64, flagged: &[u64], tl: &Timeline) -> Option<DockAction> {
     let (prev_flag, next_flag) = neighbours(flagged, seq);
     ui.input_mut(|i| {
         let mut key = |k: Key| i.consume_key(egui::Modifiers::NONE, k);
         if key(Key::Space) || key(Key::K) {
             Some(if playing { DockAction::Pause } else { DockAction::Play })
         } else if key(Key::ArrowLeft) {
-            (seq > first).then(|| DockAction::Seek(seq - 1))
+            tl.prev_step(seq).map(DockAction::Seek)
         } else if key(Key::ArrowRight) {
-            (seq < last).then(|| DockAction::Seek(seq + 1))
+            tl.next_step(seq, last).map(DockAction::Seek)
         } else if key(Key::OpenBracket) {
             prev_flag.map(DockAction::Seek)
         } else if key(Key::CloseBracket) {
@@ -255,11 +287,11 @@ pub fn show(ui: &mut Ui, player: &mut Player, l: &Loaded, flags: &[Flag], tl: &T
         };
         let mut pressed = [
             go(ui, "replayRewind", "Previous flag", "Previous flag  [", prev_flag),
-            go(ui, "mediaPrev", "Previous event", "Previous event  ←", (seq > tl.first).then(|| seq - 1)),
+            go(ui, "mediaPrev", "Previous event", "Previous step (a word of typing, or one event)  ←", tl.prev_step(seq)),
             play_button(ui, player.playing, &t, &a).then_some(if player.playing { DockAction::Pause } else { DockAction::Play }),
         ]
         .to_vec();
-        pressed.push(go(ui, "mediaNext", "Next event", "Next event  →", (seq < last).then_some(seq + 1)));
+        pressed.push(go(ui, "mediaNext", "Next event", "Next step (a word of typing, or one event)  →", tl.next_step(seq, last)));
         pressed.push(go(ui, "replayForward", "Next flag", "Next flag  ]", next_flag));
         if let Some(p) = pressed.into_iter().flatten().next() {
             action = Some(p);

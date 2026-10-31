@@ -401,6 +401,9 @@ impl Review {
             format!("Inserted: {} characters, deleted: {}", chars("insertedText"), chars("deletedText")),
             format!("gestureId: {}", e.get("gestureId").and_then(Value::as_str).unwrap_or("none")),
         ];
+        if let Some(line) = crate::steps::typing_line(e) {
+            out.push(format!("Typing: {line}"));
+        }
         if s("type") == "paste" {
             out.push(format!("Clipboard formats: {}", e.get("clipboardTypes").map_or("not exposed by the browser".to_string(), Value::to_string)));
             out.push("Source: unknown (a browser can't tell where pasted text came from)".into());
@@ -467,7 +470,7 @@ impl Review {
                 .show(ui, |ui| dock = player::show(ui, &mut self.player, l, &self.flags, &self.timeline));
             // While the teacher is editing, the keys move the caret, not the replay.
             if dock.is_none() && !self.typing && !editing {
-                dock = player::shortcuts(ui, self.player.playing, l.state.seq, l.first, l.replayable, &flags::moments(&self.flags));
+                dock = player::shortcuts(ui, self.player.playing, l.state.seq, l.replayable, &flags::moments(&self.flags), &self.timeline);
             }
         }
         let mut rail = None;

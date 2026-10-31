@@ -493,6 +493,78 @@ fn the_sample_submission_replays_with_its_flags() {
     assert!(made.as_secs_f32() < 5.0, "the sample takes {made:?} to make");
 }
 
+/// FAL-678: a file from a 1.0 writer (one event per key press) and one from this writer (one per
+/// word) both open, replay to the same document with the same flags, and step and play a word at
+/// a time.
+#[test]
+fn old_per_letter_and_new_files_both_open_and_step_a_word_at_a_time() {
+    use crate::player::{Player, Timeline};
+    let (name, old) = crate::sample::docx_per_letter();
+    let (_, new) = crate::sample::docx();
+    // For the browser check: `INKWITNESS_DUMP_SAMPLES=<dir>`.
+    if let Ok(dir) = std::env::var("INKWITNESS_DUMP_SAMPLES") {
+        let _ = std::fs::write(format!("{dir}/sample-per-letter.docx"), &old);
+        let _ = std::fs::write(format!("{dir}/sample-per-word.docx"), &new);
+    }
+    let (lo, ln) =
+        (super::review::load(&name, &old).unwrap_or_else(|e| panic!("{e}")), super::review::load(&name, &new).unwrap_or_else(|e| panic!("{e}")));
+    assert_eq!(lo.consistency, Consistency::Consistent);
+    assert_eq!(ln.consistency, Consistency::Consistent);
+    let (eo, en) = (lo.replay.events().len(), ln.replay.events().len());
+    assert!(lo.replay.events().iter().all(|e| e.get("keyCount").is_none()), "the old file has no merged events");
+    assert!(en * 4 < eo, "{eo} events per letter, {en} per word");
+    eprintln!("sample: {eo} events per letter, {en} per word; file {} bytes, {} bytes", old.len(), new.len());
+    assert_eq!(lo.last.doc.plain_text(StoryRef::Body), ln.last.doc.plain_text(StoryRef::Body));
+    let kinds = |l: &super::review::Loaded| crate::flags::compute(l).iter().map(|f| (f.kind, f.label.clone())).collect::<Vec<_>>();
+    assert_eq!(kinds(&lo), kinds(&ln), "the flags mean the same with merged events");
+
+    for l in [&lo, &ln] {
+        let tl = Timeline::new(l.replay.events(), l.first, l.replayable, true);
+        // → from the start visits only step ends, in order, and reaches the end.
+        let mut seen = Vec::new();
+        let mut at = l.first;
+        while let Some(next) = tl.next_step(at, l.replayable) {
+            assert!(tl.step_ends().contains(&next) && next > at);
+            seen.push(next);
+            at = next;
+        }
+        assert_eq!(at, l.replayable);
+        assert_eq!(seen.len(), tl.step_ends().len() - usize::from(l.first > 0), "every step is visited");
+        assert!(seen.len() * 4 < eo, "{} steps for {eo} per-letter events", seen.len());
+        // ← retraces them.
+        while let Some(prev) = tl.prev_step(at) {
+            at = prev;
+        }
+        assert_eq!(at, l.first);
+        // Play only ever shows a step's last event.
+        let mut p = Player::default();
+        let mut shown = l.first;
+        p.play(&tl, l.first, l.replayable);
+        p.pause_at_flags = false;
+        let mut t = 0.0;
+        while p.playing && t < 10_000.0 {
+            t += 0.07;
+            if let Some(s) = p.tick(t, &tl, shown, l.replayable, &[]) {
+                assert!(tl.step_ends().contains(&s), "Play showed event {s}, half way through a word");
+                shown = s;
+            }
+        }
+        assert_eq!(shown, l.replayable);
+    }
+}
+
+/// FAL-678: a merged event shows its key count and a typing speed that follows from the times.
+#[test]
+fn a_merged_event_says_how_fast_it_was_typed() {
+    let (name, new) = crate::sample::docx();
+    let l = super::review::load(&name, &new).unwrap_or_else(|e| panic!("{e}"));
+    let e = l.replay.events().iter().find(|e| e["keyCount"].as_u64().is_some_and(|k| k >= 5)).unwrap_or_else(|| panic!("no merged event"));
+    let line = crate::steps::typing_line(e).unwrap_or_default();
+    assert!(line.contains("keys a minute"), "{line}");
+    let card = crate::rail::event_card(&l, e["seq"].as_u64().unwrap_or(0), None).unwrap_or_else(|| panic!("no card"));
+    assert!(card.details.iter().any(|(k, v)| k == "Typing" && *v == line), "{:?}", card.details);
+}
+
 /// The text between comment `id`'s start and end in `doc`'s body.
 fn commented(doc: &Document, id: u32) -> Option<String> {
     use wordcraft_doc::InlineObject;
