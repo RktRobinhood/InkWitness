@@ -158,6 +158,12 @@ pub struct Review {
     pub at_outside: bool,
     /// A short message for the reviewer (a download started, or couldn't).
     pub notice: Option<String>,
+    /// The page cue shown now ("Page 1 → Page 7").
+    pub cue: Option<String>,
+    /// How the page moves to the event shown ([`crate::motion`]).
+    pub follower: crate::motion::Follower,
+    /// The remembered Motion choice was read.
+    motion_read: bool,
 }
 
 /// The rail's lists.
@@ -222,6 +228,12 @@ impl Review {
     /// Show the state after event `seq` (clamped to the replayable ones), its range
     /// highlighted and scrolled into view.
     pub fn seek(&mut self, app: &mut WordApp, seq: u64) {
+        self.seek_as(app, seq, crate::motion::Kind::Seek);
+    }
+
+    /// [`Review::seek`], as playback stepping to it (the view follows only if it must) or as a
+    /// seek (the view follows at once).
+    fn seek_as(&mut self, app: &mut WordApp, seq: u64, kind: crate::motion::Kind) {
         let Some(l) = &mut self.loaded else { return };
         let seq = seq.min(l.replayable);
         // From the file as it stands, a recorded moment is replayed from its checkpoint.
@@ -240,7 +252,9 @@ impl Review {
         }
         self.at_outside = false;
         l.mark = l.replay.event(l.state.seq).and_then(|e| event_range(&l.state, e));
+        app.canvas.review_epoch += 1;
         self.put(app);
+        self.follower.shown_at(kind, app.canvas.review_epoch);
     }
 
     /// Show the file as it stands, after the last recorded event, with what was added outside
@@ -279,6 +293,10 @@ impl Review {
             self.added = added;
         }
         app.session.set_read_only(!editing);
+        // The page moves the view itself ([`Review::motion_frame`]); a teacher typing on it
+        // keeps the caret in view as any editor does.
+        app.canvas.review_owns_scroll = !editing;
+        app.canvas.scroll_to_caret = editing;
         if editing {
             app.session.author = self.teacher.trim().to_string();
         }
@@ -464,6 +482,9 @@ impl Review {
         match &l.mark {
             Some(m) if m.context_matches => out.push("Anchor: resolved, surrounding text matches".into()),
             Some(_) => out.push("Anchor: resolved, surrounding text not checked or differs (uncertain)".into()),
+            None if e.get("afterAnchor").is_some_and(|a| !a.is_null()) => {
+                out.push("Anchor: can't be found in this text, so the page stays where it is (no match is guessed)".into());
+            }
             None => out.push("Anchor: nothing to highlight in this state".into()),
         }
         out
@@ -507,6 +528,7 @@ impl Review {
         let t = wordcraft_ui_egui::theme::Tokens::get(ui.ctx());
         let a = wordcraft_ui_egui::theme::critic::Accents::get(ui.ctx());
         self.play(ui, app);
+        self.motion_frame(ui, app);
         let mut dock = None;
         if let Some(l) = &self.loaded
             && l.consistency != Consistency::Missing
@@ -520,7 +542,7 @@ impl Review {
                         .inner_margin(egui::Margin { left: 16, right: 16, top: 6, bottom: 8 })
                         .stroke(egui::Stroke::new(1.0, t.border)),
                 )
-                .show(ui, |ui| dock = player::show(ui, &mut self.player, l, &self.flags, &self.timeline));
+                .show(ui, |ui| dock = player::show(ui, &mut self.player, &mut self.follower, l, &self.flags, &self.timeline));
             // While the teacher is editing, the keys move the caret, not the replay.
             if dock.is_none() && !self.typing && !editing {
                 dock = player::shortcuts(ui, self.player.playing, l.state.seq, l.replayable, &flags::moments(&self.flags), &self.timeline);
@@ -564,7 +586,7 @@ impl Review {
         let now = ui.input(|i| i.time);
         let flagged = flags::moments(&self.flags);
         if let Some(s) = self.player.tick(now, &self.timeline, l.state.seq, l.replayable, &flagged) {
-            self.seek(app, s);
+            self.seek_as(app, s, crate::motion::Kind::Play);
         }
         if self.player.playing {
             ui.ctx().request_repaint();
@@ -588,6 +610,71 @@ impl Review {
             }
             DockAction::Pause => self.player.pause(),
             DockAction::Comment => self.comment_here(app),
+            DockAction::Motion => {
+                #[cfg(target_arch = "wasm32")]
+                crate::web::store(crate::motion::KEY, self.follower.motion.code());
+            }
+            DockAction::PauseOnScroll => {
+                #[cfg(target_arch = "wasm32")]
+                crate::web::store(crate::motion::PAUSE_KEY, if self.follower.pause_on_scroll { "on" } else { "off" });
+            }
+            DockAction::FollowAgain => self.follower.follow_again(),
+        }
+    }
+
+    /// Move the view to the event shown, as the Motion setting says, and paint the dim, the
+    /// cross-fade and the page cue that go with it. Drawn after the chrome, before the page.
+    fn motion_frame(&mut self, ui: &egui::Ui, app: &mut WordApp) {
+        if !self.motion_read {
+            self.motion_read = true;
+            #[cfg(target_arch = "wasm32")]
+            {
+                let saved = crate::web::stored(crate::motion::KEY);
+                self.follower.motion = crate::motion::Motion::resolve(saved.as_deref(), app.animations_on());
+                self.follower.pause_on_scroll = crate::web::stored(crate::motion::PAUSE_KEY).as_deref() == Some("on");
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.follower.motion = crate::motion::Motion::resolve(None, app.animations_on());
+            }
+        }
+        if self.loaded.is_none() || !app.canvas.review_owns_scroll {
+            app.canvas.review_mark_alpha = 1.0;
+            return;
+        }
+        let (offset, max) = app.canvas.scroll_y();
+        let now = ui.input(|i| i.time);
+        let view = app.canvas.review_view.clone();
+        let out = self.follower.update(&crate::motion::Frame { now, offset, max, view: &view });
+        if let Some(y) = out.scroll_to {
+            app.canvas.scroll_to_y(y);
+        }
+        app.canvas.review_mark_alpha = out.mark_alpha;
+        if out.manual && self.follower.pause_on_scroll {
+            self.player.pause();
+        }
+        if out.busy {
+            ui.ctx().request_repaint();
+        }
+        self.cue = out.cue.clone();
+        let Some(vp) = app.canvas.viewport_rect() else { return };
+        let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("inkwitness_motion"));
+        let painter = ui.ctx().layer_painter(layer);
+        if out.dim > 0.0 {
+            painter.rect_filled(vp, 0.0, egui::Color32::from_black_alpha((out.dim * 255.0) as u8));
+        }
+        if out.fade > 0.0 {
+            let veil = ui.visuals().panel_fill;
+            painter.rect_filled(vp, 0.0, veil.gamma_multiply(out.fade * 0.8));
+        }
+        if let Some(cue) = &out.cue {
+            let t = wordcraft_ui_egui::theme::Tokens::get(ui.ctx());
+            let font = wordcraft_ui_egui::theme::medium(14.0);
+            let galley = painter.layout_no_wrap(cue.clone(), font, t.on_accent);
+            let size = galley.size() + egui::vec2(24.0, 12.0);
+            let rect = egui::Rect::from_center_size(egui::pos2(vp.center().x, vp.top() + 28.0), size);
+            painter.rect_filled(rect, egui::CornerRadius::same(14), egui::Color32::from_black_alpha(190));
+            painter.galley(rect.center() - galley.size() / 2.0, galley, t.on_accent);
         }
     }
 
@@ -770,11 +857,9 @@ impl Review {
             return;
         }
         let Some(l) = &self.loaded else { return };
-        let placed = l
-            .replay
-            .state_at(seq)
-            .ok()
-            .and_then(|st| l.replay.event(seq).and_then(|e| event_range(&st, e)).and_then(|m| comments::anchor_forward(&st, &l.last, &m.start, &m.end)));
+        let placed = l.replay.state_at(seq).ok().and_then(|st| {
+            l.replay.event(seq).and_then(|e| event_range(&st, e)).and_then(|m| comments::anchor_forward(&st, &l.last, &m.start, &m.end))
+        });
         self.next_id += 1;
         self.comments.push(TeacherComment {
             id: self.next_id,
@@ -921,7 +1006,6 @@ fn show(app: &mut WordApp, l: &Loaded, edits: Option<&Edits>, map: Option<&Map>,
     let at = mark.as_ref().map_or_else(|| app.session.doc.start_of(StoryRef::Body), |m| m.0.clone());
     app.session.sel = Selection::caret(app.session.doc.clamp(&at));
     app.canvas.review_mark = mark.filter(|m| m.0 != m.1);
-    app.canvas.scroll_to_caret = true;
     (doc, added)
 }
 

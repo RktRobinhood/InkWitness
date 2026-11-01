@@ -39,6 +39,22 @@ const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 const REVIEW_MARK_FILL: egui::Color32 = egui::Color32::from_rgba_premultiplied(81, 53, 0, 90);
 const REVIEW_MARK_LINE: egui::Color32 = egui::Color32::from_rgb(214, 140, 0);
 
+/// The layout facts the review page's scroller needs, in content coordinates (what
+/// `scroll_offset` is measured in).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ReviewView {
+    /// Top and bottom of the review mark, when it is on the current layout.
+    pub mark: Option<(f32, f32)>,
+    /// Top and bottom of every page.
+    pub pages: Vec<(f32, f32)>,
+    /// Height of the visible area, and the zoom and pages per row it was worked out for.
+    pub view_h: f32,
+    pub scale: f32,
+    pub cols: usize,
+    /// The `review_epoch` the page had when this was worked out.
+    pub epoch: u64,
+}
+
 pub struct CanvasState {
     textures: HashMap<usize, (u64, TextureHandle)>,
     /// Visible full-resolution tiles of pages too tall for one GPU texture.
@@ -54,6 +70,18 @@ pub struct CanvasState {
     pub keep_view: bool,
     /// InkWitness review: the range of the event being reviewed, highlighted on the page.
     pub review_mark: Option<(wordcraft_engine::doc::Pos, wordcraft_engine::doc::Pos)>,
+    /// InkWitness review: the review page moves the view itself (FAL-478), so the canvas never
+    /// scrolls to the caret. Only the review page sets it; `/write/` and Read mode are unchanged.
+    pub review_owns_scroll: bool,
+    /// InkWitness review: how strongly the mark is painted (0 hidden, 1 full): it fades in once
+    /// its text is on screen.
+    pub review_mark_alpha: f32,
+    /// InkWitness review: where the mark and the pages are on the current layout, for the
+    /// review page's scroller. Worked out again every frame.
+    pub review_view: ReviewView,
+    /// InkWitness review: counts the changes of what the page shows, so the scroller can tell
+    /// whether `review_view` was worked out for the page as it is now.
+    pub review_epoch: u64,
     /// InkWitness review: the teacher's highlights, painted over their ranges in their colours.
     /// They are drawn on the page only; the document isn't changed (FAL-547).
     pub review_highlights: Vec<(wordcraft_engine::doc::Pos, wordcraft_engine::doc::Pos, egui::Color32)>,
@@ -222,6 +250,22 @@ pub struct CanvasState {
 type TablePreviewKey = ((usize, usize, u64, u64, wordcraft_engine::Selection), std::sync::Arc<DocLayout>);
 
 impl CanvasState {
+    /// The vertical scroll offset at the end of last frame, and the most it can be.
+    pub fn scroll_y(&self) -> (f32, f32) {
+        (self.scroll_offset.y, self.scroll_max.y)
+    }
+
+    /// Scroll the page to vertical offset `y` this frame, keeping the horizontal one (the review
+    /// page's scroller, FAL-478).
+    pub fn scroll_to_y(&mut self, y: f32) {
+        self.scroll_request = Some(vec2(self.scroll_offset.x, y));
+    }
+
+    /// The screen rectangle of the visible page area at the end of last frame.
+    pub fn viewport_rect(&self) -> Option<egui::Rect> {
+        self.viewport
+    }
+
     /// Stop a text-selection drag when the pointer gesture becomes an object drag.
     pub(crate) fn cancel_text_drag(&mut self) {
         self.dragging = false;
@@ -258,6 +302,10 @@ impl Default for CanvasState {
             scroll_to_caret: true,
             keep_view: false,
             review_mark: None,
+            review_owns_scroll: false,
+            review_mark_alpha: 1.0,
+            review_view: ReviewView::default(),
+            review_epoch: 0,
             review_highlights: Vec::new(),
             nav_to_caret: false,
             read_wheel_accum: 0.0,
@@ -638,6 +686,28 @@ fn reading_page_start(layout: &DocLayout, page: usize) -> Option<Pos> {
             _ => None,
         })
         .or_else(|| Some(Pos::body(p.first_block, 0)))
+}
+
+/// Where the review mark and the pages are on this layout (content coordinates).
+fn review_view(app: &WordApp, layout: &DocLayout, geo: &Geometry, view_h: f32) -> ReviewView {
+    let mut mark: Option<(f32, f32)> = None;
+    if let Some((a, b)) = &app.canvas.review_mark {
+        let (a, b) = (app.session.doc.clamp(a), app.session.doc.clamp(b));
+        for (pi, r) in layout.selection_rects(&app.session.doc, &a, &b, app.session.page_hint) {
+            if let Some(pr) = geo.rects.get(pi) {
+                let (top, bottom) = (pr.min.y + r.y * geo.scale, pr.min.y + (r.y + r.h) * geo.scale);
+                mark = Some(mark.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))));
+            }
+        }
+    }
+    ReviewView {
+        mark,
+        pages: geo.rects.iter().map(|r| (r.top(), r.bottom())).collect(),
+        view_h,
+        scale: geo.scale,
+        cols: geo.cols,
+        epoch: app.canvas.review_epoch,
+    }
 }
 
 /// Resolve a reading anchor after page breaks change. Preserves the first visible text instead
@@ -1187,6 +1257,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
         }
     } else if app.canvas.scroll_to_caret
+        && !app.canvas.review_owns_scroll
         && let Some(c) = caret
         && let Some(pr) = geo.rects.get(c.page)
     {
@@ -1609,13 +1680,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         }
         // InkWitness review: the event being reviewed (a pasted passage), outlined in amber.
         if let Some((a, b)) = app.canvas.review_mark.clone() {
+            let alpha = app.canvas.review_mark_alpha.clamp(0.0, 1.0);
             let (a, b) = (app.session.doc.clamp(&a), app.session.doc.clamp(&b));
             for (pi, r) in layout.selection_rects(&app.session.doc, &a, &b, app.session.page_hint) {
-                if let Some(pr) = rects.get(pi) {
+                if let Some(pr) = rects.get(pi).filter(|_| alpha > 0.0) {
                     let sr =
                         Rect::from_min_size(pos2(pr.min.x + r.x * geo.scale, pr.min.y + r.y * geo.scale), vec2(r.w * geo.scale, r.h * geo.scale));
-                    painter.rect_filled(sr, 0.0, REVIEW_MARK_FILL);
-                    painter.hline(sr.x_range(), sr.max.y - 0.5, egui::Stroke::new(2.0, REVIEW_MARK_LINE));
+                    painter.rect_filled(sr, 0.0, REVIEW_MARK_FILL.gamma_multiply(alpha));
+                    painter.hline(sr.x_range(), sr.max.y - 0.5, egui::Stroke::new(2.0, REVIEW_MARK_LINE.gamma_multiply(alpha)));
                 }
             }
         }
@@ -1775,6 +1847,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         (resp, rects)
     });
     app.canvas.scroll_offset = out.state.offset;
+    if app.canvas.review_owns_scroll {
+        app.canvas.review_view = review_view(app, &layout, &geo, out.inner_rect.height());
+    }
     scrollbar_page_tip(app, ui, out.id, &geo.rects, &geo.bands, layout.pages.len());
     // The page the status bar names (#3880): the caret's, or a whole-story selection's page, while
     // it is on screen; else the page at the top of the window.

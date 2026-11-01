@@ -16,6 +16,7 @@ use wordcraft_ui_egui::theme::{Tokens, medium, regular, semibold};
 
 use crate::card::{self, focus_ring};
 use crate::flags::{Flag, FlagKind};
+use crate::motion::{Follower, Motion};
 use crate::review::Loaded;
 
 /// A pause longer than this (ms) is idle time…
@@ -229,6 +230,12 @@ pub enum DockAction {
     Pause,
     /// Open a comment draft on the selection, or on the moment shown.
     Comment,
+    /// The Motion choice changed (to be remembered).
+    Motion,
+    /// "Pause playback when I scroll" changed (to be remembered).
+    PauseOnScroll,
+    /// The Follow playback button: the view goes back to following.
+    FollowAgain,
 }
 
 /// "1:05" (or "1:02:05") for `ms`.
@@ -268,7 +275,7 @@ pub fn shortcuts(ui: &Ui, playing: bool, seq: u64, last: u64, flagged: &[u64], t
 
 /// Draw the dock: the timeline, then the transport. Speed, Skip idle and Pause at flags change
 /// `player` directly.
-pub fn show(ui: &mut Ui, player: &mut Player, l: &Loaded, flags: &[Flag], tl: &Timeline) -> Option<DockAction> {
+pub fn show(ui: &mut Ui, player: &mut Player, follower: &mut Follower, l: &Loaded, flags: &[Flag], tl: &Timeline) -> Option<DockAction> {
     let t = Tokens::get(ui.ctx());
     let a = Accents::get(ui.ctx());
     let seq = l.state.seq;
@@ -335,6 +342,36 @@ pub fn show(ui: &mut Ui, player: &mut Player, l: &Loaded, flags: &[Flag], tl: &T
             speed.response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, "Playback speed"));
             speed.response.on_hover_text("Playback speed");
             ui.label(RichText::new("Speed").font(regular(12.0)).color(t.text_dim));
+            ui.separator();
+            let before = (follower.motion, follower.pause_on_scroll);
+            let motion = egui::ComboBox::from_id_salt("inkwitness_motion")
+                .selected_text(RichText::new(follower.motion.label()).font(medium(12.5)))
+                .width(88.0)
+                .show_ui(ui, |ui| {
+                    for m in Motion::ALL {
+                        ui.selectable_value(&mut follower.motion, m, m.label()).on_hover_text(m.hint());
+                    }
+                    ui.separator();
+                    ui.checkbox(&mut follower.pause_on_scroll, "Pause playback when I scroll")
+                        .on_hover_text("Scrolling the page by hand also pauses playback. Off: playback goes on and the view stops following.");
+                });
+            motion.response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, "Motion"));
+            motion.response.on_hover_text("How the page moves to the text: Smooth, Reduced or Instant");
+            ui.label(RichText::new("Motion").font(regular(12.0)).color(t.text_dim));
+            if follower.motion != before.0 {
+                action = Some(DockAction::Motion);
+            } else if follower.pause_on_scroll != before.1 {
+                action = Some(DockAction::PauseOnScroll);
+            }
+            if !follower.following {
+                ui.separator();
+                let follow =
+                    ui.add(egui::Button::new(RichText::new("Follow playback").font(semibold(12.5)).color(t.text)).min_size(vec2(124.0, 36.0)));
+                focus_ring(ui, &follow, &a);
+                if follow.on_hover_text("The page stopped following because you scrolled. Go back to the event shown and follow again.").clicked() {
+                    action = Some(DockAction::FollowAgain);
+                }
+            }
         });
     });
     action

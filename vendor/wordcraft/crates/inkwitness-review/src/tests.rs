@@ -109,7 +109,9 @@ fn review_seeks_to_the_paste_and_highlights_exactly_the_pasted_text() {
     let (a, b) = app.canvas.review_mark.clone().unwrap_or_else(|| panic!("nothing highlighted"));
     assert_eq!((a.off, b.off), (28, 213));
     assert_eq!(app.session.sel.focus, a, "the caret is at the paste, so the view scrolls to it");
-    assert!(app.canvas.scroll_to_caret);
+    // The review page moves the view itself (FAL-478): the canvas doesn't jump to the caret.
+    assert!(app.canvas.review_owns_scroll && !app.canvas.scroll_to_caret);
+    assert!(review.follower.following);
     let note = review.note().join("\n");
     assert!(note.contains("Type: paste") && note.contains("Inserted: 185 characters") && note.contains("gestureId: "), "{note}");
     assert!(!note.contains("gestureId: none"), "{note}");
@@ -270,6 +272,7 @@ const RAIL: &[&str] = &[
     "Pause at flags",
     "Skip idle",
     "Playback speed",
+    "Motion",
     "Replay timeline",
     "Headings",
     "Pages",
@@ -1323,7 +1326,8 @@ fn a_flag_card_reads_as_a_finding_with_no_score() {
         h.step();
     }
     let text = page_text(&h);
-    for part in ["observed", "other explanations", "check next", "what this does not prove", "resolution", "method findings.v1", "assistive workflow"] {
+    for part in ["observed", "other explanations", "check next", "what this does not prove", "resolution", "method findings.v1", "assistive workflow"]
+    {
         assert!(text.contains(part), "{part} is missing from the rail");
     }
     for banned in ["risk", "score", "likelihood", "probability", "confidence", "out of"] {
@@ -1386,4 +1390,97 @@ fn the_rail_sets_a_resolution() {
     }
     let n = h.state().0.comments.iter().filter(|c| c.resolution == Some(crate::findings::Resolution::Dismissed)).count();
     assert_eq!(n, 1);
+}
+
+/// The seven-page fixture (`g2-pages.docx`, FAL-478): edits on page 3, a paste on page 7.
+const PAGES_DOCX: &[u8] = include_bytes!("../../inkwitness/tests/fixtures/g2-pages.docx");
+
+/// A review page on the long fixture at 60 frames a second, opened on `seq`.
+fn long_page(motion: crate::motion::Motion) -> egui_kittest::Harness<'static, (Review, WordApp)> {
+    let mut app = review_app();
+    app.ui.language = "en".into();
+    crate::toolbar::setup(&mut app);
+    let mut review = Review::default();
+    review.open(&mut app, "g2-pages.docx", PAGES_DOCX);
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+        |ui, (review, app): &mut (Review, WordApp)| {
+            let ctx = ui.ctx().clone();
+            review.logic(app);
+            app.logic(&ctx);
+            review.chrome(ui, app);
+            app.ui(ui);
+        },
+        (review, app),
+    );
+    h.state_mut().0.follower.motion = motion;
+    // The first frames read the remembered Motion once: say it was read.
+    for _ in 0..8 {
+        h.step();
+    }
+    h.state_mut().0.follower.motion = motion;
+    h
+}
+
+/// Show event `seq` as a seek, run `frames` frames, and the scroll offsets seen.
+fn seek_and_sample(h: &mut egui_kittest::Harness<'static, (Review, WordApp)>, seq: u64, frames: usize) -> Vec<f32> {
+    {
+        let (review, app) = h.state_mut();
+        review.go(app, seq);
+    }
+    (0..frames)
+        .map(|_| {
+            h.step();
+            h.state().1.canvas.scroll_y().0
+        })
+        .collect()
+}
+
+fn page_of_mark(h: &egui_kittest::Harness<'static, (Review, WordApp)>) -> Option<usize> {
+    let v = &h.state().1.canvas.review_view;
+    let (top, _) = v.mark?;
+    v.pages.iter().position(|(_, bottom)| top <= *bottom)
+}
+
+#[test]
+fn a_seek_from_page_three_to_page_seven_moves_as_the_motion_setting_says() {
+    use crate::motion::Motion;
+    let paste = {
+        let (mut app, mut review) = (review_app(), Review::default());
+        review.open(&mut app, "g2-pages.docx", PAGES_DOCX);
+        review.first_paste().unwrap_or_else(|| panic!("no paste"))
+    };
+    for motion in [Motion::Reduced, Motion::Instant, Motion::Smooth] {
+        let mut h = long_page(motion);
+        // The edit just before the paste is on page 3.
+        let on_three = seek_and_sample(&mut h, paste - 1, 120);
+        assert_eq!(page_of_mark(&h), Some(2), "{motion:?}");
+        assert!(h.state().1.canvas.review_view.pages.len() >= 7);
+        let rest = on_three.last().copied().unwrap_or(0.0);
+        let to_seven = seek_and_sample(&mut h, paste, 160);
+        assert_eq!(page_of_mark(&h), Some(6), "{motion:?}");
+        let end = to_seven.last().copied().unwrap_or(0.0);
+        assert!(end > rest + 3.0 * 900.0, "{motion:?}: {rest} → {end}");
+        let (_, pages) = (0, h.state().1.canvas.review_view.pages.clone());
+        let pitch = (pages[6].0 - pages[0].0) / 6.0;
+        match motion {
+            Motion::Reduced | Motion::Instant => {
+                // The page is where it was, then at the target: nothing in between.
+                let distinct: std::collections::BTreeSet<u32> = to_seven.iter().map(|y| y.to_bits()).chain([rest.to_bits()]).collect();
+                assert_eq!(distinct.len(), 2, "{motion:?} had in-between positions: {to_seven:?}");
+            }
+            Motion::Smooth => {
+                // The last stretch rises steadily, under the speed cap (per frame at 60 fps).
+                let last_stretch: Vec<f32> = to_seven.iter().copied().filter(|y| *y > end - 0.5 * pitch - 2.0).collect();
+                assert!(last_stretch.len() > 10, "{last_stretch:?}");
+                assert!(last_stretch.windows(2).all(|w| w[1] >= w[0]), "{last_stretch:?}");
+                let cap = crate::motion::MAX_SPEED_PAGES_PER_S * pitch / 60.0;
+                assert!(to_seven.windows(2).filter(|w| w[1] > w[0] && w[1] - w[0] < pitch).all(|w| w[1] - w[0] <= cap * 1.1));
+                // Nothing in between: it holds, then is within half a page of the target.
+                assert!(to_seven.iter().all(|y| *y == rest || *y >= end - 0.5 * pitch - 2.0), "{to_seven:?}");
+            }
+        }
+        // Page 7 is in view now: seeking to it again doesn't scroll.
+        let again = seek_and_sample(&mut h, paste, 60);
+        assert!(again.iter().all(|y| *y == end), "{motion:?}: scrolled although in view");
+    }
 }

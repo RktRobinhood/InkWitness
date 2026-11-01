@@ -286,3 +286,20 @@ fn the_committed_fixture_is_the_writers_output_and_reads_back() {
     let part = wordcraft_docx::find_custom_xml_part(&doc, NAMESPACE).unwrap().unwrap();
     assert_eq!(part.item_id.as_deref(), Some(fixture::ITEM_ID));
 }
+
+#[test]
+fn the_long_fixture_has_seven_pages_edits_on_page_three_and_a_paste_on_page_seven() {
+    let (s, _) = fixture::pages_session();
+    let lay = wordcraft_layout::layout(&s.doc, &mut wordcraft_layout::LayoutCache::new(), &Default::default());
+    assert!(lay.pages.len() >= 7, "only {} pages", lay.pages.len());
+    let committed =
+        std::fs::read(format!("{}/{}", env!("CARGO_MANIFEST_DIR"), fixture::PAGES_PATH)).expect("run the evidence_fixture example with `pages`");
+    assert!(committed == fixture::build_pages(), "stale fixture: run `cargo run -p wordcraft-inkwitness --example evidence_fixture -- pages`");
+    let e = envelope::extract(&wordcraft_docx::read(&committed).unwrap()).unwrap().unwrap();
+    let v: Value = serde_json::from_slice(&e.payload).unwrap();
+    let events = v["events"].as_array().unwrap();
+    assert_eq!(events.iter().filter(|e| e["type"] == "paste").count(), 1);
+    assert_eq!(events.iter().find(|e| e["type"] == "paste").unwrap()["insertedText"], fixture::PAGES_PASTE);
+    assert_eq!(fixture::PAGES_PASTE.len(), 185);
+    assert_eq!(v["student"]["displayName"], "Example Student");
+}

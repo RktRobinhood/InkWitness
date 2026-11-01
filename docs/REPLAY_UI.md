@@ -109,6 +109,20 @@ The scroll model is **viewport-aware**:
 
 **Crucial:** Playback state and layout geometry are separate. Page numbers, coordinates and scrolling are derived from the current reconstructed document, not stored as authoritative event anchors in the DOCX. This avoids misalignment when a teacher changes window width or zoom.
 
+### How the review page moves (FAL-478, built in `crates/inkwitness-review/src/motion.rs`)
+
+Points 1–7 above are built as follows. Everything is worked out from the current layout every frame, so a change of window width or zoom can't send the view to the wrong place: if the layout changes while following, the view goes to where the text is now (no animation).
+
+- **Follow only when needed.** The event's rectangle is compared with the visible area less a comfort margin of 18 % at the top and bottom. Inside it: no scroll. Otherwise: the nearest position that puts it comfortably in view. A passage taller than the comfortable area counts as in view while any of it is in that area; otherwise its top goes to the margin. If the anchor doesn't resolve on the current text, the page does not move and the card says so ("Anchor: can't be found in this text, so the page stays where it is"). Nothing is guessed by text search.
+- **Motion menu** in the dock: **Smooth**, **Reduced**, **Instant**. It is remembered in this browser's `localStorage` (`inkwitness.review.motion`: a preference, no student data). With nothing saved it follows the existing Animations setting, which follows `prefers-reduced-motion`: Reduced when animations are off, otherwise Smooth.
+  - **Smooth.** An eased (smoothstep) scroll: 350 ms for a short distance up to 700 ms for a page, then slower so the peak speed never exceeds 2.2 pages a second. The jump is a **long jump** when it is more than 2 pages (intro to conclusion): the page dims over 150 ms, then repositions half a page short of the target, eases in the last half page over 450 ms, then undims over 200 ms. It never scrolls past every page in between. A quiet cue ("Page 3 → Page 7") shows for 1.5 s.
+  - **Reduced.** No scrolling movement. It goes straight to the target with a brief veil that fades out in 150 ms (opacity only) and the same cue.
+  - **Instant.** Straight to the target, no animation, the same cue.
+- **No bouncing while playing.** The view follows playback at most once every 600 ms, and only text that has stayed off screen (in the same place, within half a page) for 400 ms. Edits that alternate between two places never settle long enough to follow, so the view doesn't swing. Seeks, pin clicks, the step and flag buttons and the Follow playback button follow at once, using the Motion setting.
+- **Changes show when visible.** The highlight of an event appears only once its text is on screen: Smooth fades it in over 250 ms, Reduced and Instant show it at once. An event that spans pages shows its visible part.
+- **The teacher's scrolling wins.** A scroll the page did not make itself (wheel, scrollbar, keys, touch) interrupts a running animation and turns following off. Playback goes on. A **Follow playback** button appears in the dock; pressing it, or any seek, turns following back on (the button goes to the event shown). The Motion menu also holds **Pause playback when I scroll** (off by default, remembered in `inkwitness.review.pause-on-scroll`).
+- **Only on the review page.** The page sets `CanvasState::review_owns_scroll`; the animated scrolling on `/write/` and in Read mode is unchanged. While the teacher is editing the final document the canvas follows the caret as in any editor.
+
 ## Right-hand comment rail
 
 - Distinguish **Word's genuine comments** from **InkWitness observation cards**. Observation cards are not themselves student misconduct findings.
