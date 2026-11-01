@@ -232,6 +232,7 @@ impl eframe::App for WebShell {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if let Some(review) = &mut self.review {
             review.chrome(ui, &mut self.app);
+            wordcraft_inkwitness_review::web::publish_motion(review, &self.app);
             // A seek this frame changes the status line.
             if let Some(line) = review.status_changed() {
                 wordcraft_inkwitness_review::web::publish(review, &line);

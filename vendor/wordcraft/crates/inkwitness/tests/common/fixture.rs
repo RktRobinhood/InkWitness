@@ -8,6 +8,8 @@
 
 use serde_json::{Value, json};
 use wordcraft_doc::Document;
+use wordcraft_doc::Pos;
+use wordcraft_engine::Selection;
 use wordcraft_engine::Session;
 use wordcraft_engine::observe::Gesture;
 use wordcraft_inkwitness::{Config, Env, Recorder, envelope, uuid_v4};
@@ -65,6 +67,94 @@ pub fn session() -> (Session, Recorder) {
     (s, r)
 }
 
+/// The long fixture's path, from the crate (`g2-pages.docx`, FAL-478): an essay of seven pages,
+/// edits on page 3 and a 185-character paste on page 7, for the review page's scrolling.
+pub const PAGES_PATH: &str = "tests/fixtures/g2-pages.docx";
+/// How many paragraphs the long fixture's essay has before the paste.
+pub const PAGES_PARAGRAPHS: usize = 28;
+/// Words in each of them.
+pub const PAGES_WORDS: usize = 90;
+/// The 185-character passage pasted on the last page.
+pub const PAGES_PASTE: &str = "Example Student pasted this synthetic passage at the end of the essay so the review page has a flagged moment on page seven. It is fabricated test text and is not taken from any source.";
+
+fn words(paragraph: usize) -> String {
+    const VOCAB: [&str; 24] = [
+        "evidence",
+        "knowledge",
+        "claim",
+        "perspective",
+        "method",
+        "question",
+        "reasoning",
+        "context",
+        "source",
+        "belief",
+        "justify",
+        "pattern",
+        "community",
+        "culture",
+        "measure",
+        "doubt",
+        "theory",
+        "observe",
+        "explain",
+        "limit",
+        "assume",
+        "compare",
+        "record",
+        "reflect",
+    ];
+    let mut out: Vec<&str> = Vec::with_capacity(PAGES_WORDS);
+    for i in 0..PAGES_WORDS {
+        out.push(VOCAB[(paragraph * 7 + i * 5 + i / 11) % VOCAB.len()]);
+    }
+    let mut text = out.join(" ");
+    text.push('.');
+    text
+}
+
+/// The page (0-based) the paragraph `block` starts on.
+pub fn page_of(doc: &Document, block: usize) -> Option<usize> {
+    let lay = wordcraft_layout::layout(doc, &mut wordcraft_layout::LayoutCache::new(), &Default::default());
+    lay.caret_on(&Pos::body(block, 0), 0).map(|c| c.page)
+}
+
+/// The long session: type [`PAGES_PARAGRAPHS`] paragraphs, edit one on page 3 (type, delete,
+/// type), then paste [`PAGES_PASTE`] at the end, on page 7.
+pub fn pages_session() -> (Session, Recorder) {
+    let mut s = Session::new(Document::new());
+    let config = Config { attempt_id: ATTEMPT.into(), session_span_id: "span-1".into(), field_id: "essay".into(), section_id: Some("main".into()) };
+    let r = Recorder::attach(&mut s, Box::new(FixedEnv { ms: 0, ids: 0 }), config);
+    for p in 0..PAGES_PARAGRAPHS {
+        if p > 0 {
+            run(&mut s, "text.newParagraph", json!({}));
+        }
+        for c in words(p).chars() {
+            run(&mut s, "text.insert", json!({"text": c.to_string()}));
+        }
+    }
+    // Back on page 3: the first paragraph that starts there.
+    let third = (0..PAGES_PARAGRAPHS).find(|b| page_of(&s.doc, *b) == Some(2)).unwrap_or(0);
+    s.sel = Selection::caret(Pos::body(third, 40));
+    for c in " (revised)".chars() {
+        run(&mut s, "text.insert", json!({"text": c.to_string()}));
+    }
+    for _ in 0..4 {
+        run(&mut s, "text.backspace", json!({}));
+    }
+    for c in "noted".chars() {
+        run(&mut s, "text.insert", json!({"text": c.to_string()}));
+    }
+    // And the paste at the very end.
+    let last = PAGES_PARAGRAPHS - 1;
+    let end = s.doc.plain_text(wordcraft_doc::StoryRef::Body).split('\n').next_back().map_or(0, |l| l.chars().count());
+    s.sel = Selection::caret(Pos::body(last, end));
+    s.begin_gesture(Gesture::paste("edit.paste", Some(vec!["text/plain".into()])));
+    run(&mut s, "edit.paste", json!({"text": PAGES_PASTE}));
+    s.end_gesture();
+    (s, r)
+}
+
 /// The evidence JSON (`schemas/evidence-v1.schema.json`) for the session.
 pub fn payload(s: &Session, r: &Recorder) -> Vec<u8> {
     let events = r.events();
@@ -106,7 +196,17 @@ pub fn payload(s: &Session, r: &Recorder) -> Vec<u8> {
 /// The fixture DOCX bytes.
 pub fn build() -> Vec<u8> {
     let (s, r) = session();
-    let payload = payload(&s, &r);
+    embed(&s, &r)
+}
+
+/// The long fixture's DOCX bytes.
+pub fn build_pages() -> Vec<u8> {
+    let (s, r) = pages_session();
+    embed(&s, &r)
+}
+
+fn embed(s: &Session, r: &Recorder) -> Vec<u8> {
+    let payload = payload(s, r);
     let mut doc = s.doc.clone();
     if let Err(e) = envelope::embed_with_item_id(&mut doc, ATTEMPT, &payload, ITEM_ID) {
         panic!("embed: {e}");

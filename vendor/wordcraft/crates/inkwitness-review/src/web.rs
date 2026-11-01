@@ -103,3 +103,19 @@ pub fn store(key: &str, value: &str) {
         let _ = s.set_item(key, value);
     }
 }
+
+/// What the browser test reads about the page's movement, every frame: the scroll offset, the
+/// Motion setting, whether the view is following, the page cue and the dimming.
+pub fn publish_motion(review: &crate::review::Review, app: &wordcraft_ui_egui::WordApp) {
+    let Some(el) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id(STATUS_ID)) else { return };
+    let set = |k: &str, v: &str| {
+        if el.get_attribute(k).as_deref() != Some(v) {
+            let _ = el.set_attribute(k, v);
+        }
+    };
+    set("data-scroll-y", &format!("{:.1}", app.canvas.scroll_y().0));
+    set("data-motion", review.follower.motion.code());
+    set("data-follow", if review.follower.following { "on" } else { "off" });
+    set("data-cue", review.cue.as_deref().unwrap_or(""));
+    set("data-playing", if review.player.playing { "yes" } else { "no" });
+}

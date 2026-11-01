@@ -378,10 +378,8 @@ fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accent
                 let why = "The commented text was removed later: the comment sits at the nearest paragraph that remains.";
                 ui.add(egui::Label::new(RichText::new(why).font(regular(11.5)).color(t.text_dim)).wrap());
             }
-            if c.highlight.is_none() {
-                if !c.text.is_empty() || c.resolution.is_none() {
-                    ui.add(egui::Label::new(RichText::new(&c.text).font(regular(13.0)).color(t.text)).wrap());
-                }
+            if c.highlight.is_none() && (!c.text.is_empty() || c.resolution.is_none()) {
+                ui.add(egui::Label::new(RichText::new(&c.text).font(regular(13.0)).color(t.text)).wrap());
             }
             if let Some((s, e)) = c.seq.and_then(|s| l.replay.event(s).map(|e| (s, e))) {
                 let el = e.get("elapsedMonotonicMs").and_then(Value::as_u64).map(elapsed).unwrap_or_default();

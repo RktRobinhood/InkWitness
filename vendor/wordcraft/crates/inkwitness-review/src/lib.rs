@@ -16,6 +16,7 @@ pub mod edits;
 pub mod export;
 pub mod findings;
 pub mod flags;
+pub mod motion;
 pub mod outside;
 pub mod player;
 pub mod rail;
