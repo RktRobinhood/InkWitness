@@ -28,7 +28,8 @@ use wordcraft_ui_egui::WordApp;
 
 use crate::comments::{self, Draft, TeacherComment};
 use crate::edits::{Edits, Map};
-use crate::flags::{self, Flag};
+use crate::findings::Resolution;
+use crate::flags::{self, Flag, FlagKind};
 use crate::outside::Outside;
 use crate::player::{self, DockAction, Player, Timeline};
 use crate::rail::RailAction;
@@ -386,6 +387,7 @@ impl Review {
             seq: (l.state.seq > 0).then_some(l.state.seq),
             from_flag: None,
             written: now_iso(),
+            resolution: None,
         });
         self.colour = colour;
         self.notice = None;
@@ -723,6 +725,7 @@ impl Review {
                     seq: d.seq,
                     from_flag: d.from_flag,
                     written: now_iso(),
+                    resolution: None,
                 });
                 self.tab = RailTab::Comments;
             }
@@ -733,7 +736,58 @@ impl Review {
 
     /// Whether event `seq` has been promoted to a comment.
     pub fn promoted(&self, seq: u64) -> bool {
-        self.comments.iter().any(|c| c.from_flag.is_some_and(|(s, _)| s == seq))
+        self.comments.iter().any(|c| c.resolution.is_none() && c.from_flag.is_some_and(|(s, _)| s == seq))
+    }
+
+    /// The teacher's resolution and note of the finding of `kind` at event `seq` (open, no note,
+    /// until they set one).
+    pub fn resolution_of(&self, seq: u64, kind: FlagKind) -> (Resolution, &str) {
+        self.comments
+            .iter()
+            .find(|c| c.from_flag == Some((seq, kind)) && c.resolution.is_some())
+            .map_or((Resolution::Open, ""), |c| (c.resolution.unwrap_or_default(), c.text.as_str()))
+    }
+
+    /// Set the resolution and note of the finding of `kind` at event `seq`. It is kept with the
+    /// teacher's comments, anchored on the event's text in the final document, so it is listed
+    /// with them, drawn on the page and goes into the review copy. Open with no note takes it
+    /// away. The page doesn't move.
+    pub fn set_resolution(&mut self, seq: u64, kind: FlagKind, res: Resolution, note: &str) {
+        let key = Some((seq, kind));
+        let at = self.comments.iter().position(|c| c.from_flag == key && c.resolution.is_some());
+        if res == Resolution::Open && note.trim().is_empty() {
+            if let Some(i) = at {
+                self.comments.remove(i);
+                self.shown = None;
+            }
+            return;
+        }
+        if let Some(i) = at {
+            let c = &mut self.comments[i];
+            c.resolution = Some(res);
+            c.text = note.to_string();
+            self.shown = None;
+            return;
+        }
+        let Some(l) = &self.loaded else { return };
+        let placed = l
+            .replay
+            .state_at(seq)
+            .ok()
+            .and_then(|st| l.replay.event(seq).and_then(|e| event_range(&st, e)).and_then(|m| comments::anchor_forward(&st, &l.last, &m.start, &m.end)));
+        self.next_id += 1;
+        self.comments.push(TeacherComment {
+            id: self.next_id,
+            text: note.to_string(),
+            highlight: None,
+            moved: placed.as_ref().is_some_and(|p| p.1),
+            anchor: placed.map(|p| p.0),
+            seq: Some(seq),
+            from_flag: key,
+            written: now_iso(),
+            resolution: Some(res),
+        });
+        self.shown = None;
     }
 
     /// Download a review copy with the teacher's comments and highlights ([`crate::export`]).

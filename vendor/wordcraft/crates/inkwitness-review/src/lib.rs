@@ -14,6 +14,7 @@ pub mod card;
 pub mod comments;
 pub mod edits;
 pub mod export;
+pub mod findings;
 pub mod flags;
 pub mod outside;
 pub mod player;

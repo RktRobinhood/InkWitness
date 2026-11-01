@@ -206,6 +206,10 @@ fn the_chrome_draws_without_a_file_and_with_one() {
 /// The review page as the web shell draws it: [`crate::toolbar::setup`], the review's chrome, then
 /// the app. `file` is opened first.
 fn review_page(file: Option<(&str, &[u8])>) -> egui_kittest::Harness<'static, (Review, WordApp)> {
+    review_page_sized(file, 900.0)
+}
+
+fn review_page_sized(file: Option<(&str, &[u8])>, height: f32) -> egui_kittest::Harness<'static, (Review, WordApp)> {
     let mut app = review_app();
     app.ui.language = "en".into();
     crate::toolbar::setup(&mut app);
@@ -213,7 +217,7 @@ fn review_page(file: Option<(&str, &[u8])>) -> egui_kittest::Harness<'static, (R
     if let Some((name, bytes)) = file {
         review.open(&mut app, name, bytes);
     }
-    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400.0, height)).build_ui_state(
         |ui, (review, app): &mut (Review, WordApp)| {
             let ctx = ui.ctx().clone();
             review.logic(app);
@@ -251,6 +255,10 @@ const RAIL: &[&str] = &[
     "Show",
     "Edit",
     "Remove",
+    "Open",
+    "Explained",
+    "Needs conversation",
+    "Dismissed",
     "Download review copy (.docx)",
     "Previous flag",
     "Previous event",
@@ -1284,4 +1292,98 @@ fn a_small_outside_edit_is_shown_but_not_flagged() {
     let o = review.loaded.as_ref().and_then(|l| l.outside.as_ref()).unwrap_or_else(|| panic!("no outside section"));
     assert!(o.hunks.iter().all(|h| h.flags.is_empty()));
     assert!(o.hunks.iter().any(|h| h.added.contains("Fine.")));
+}
+
+/// Every accessible name and value on the page, lower-cased.
+fn page_text<S>(h: &egui_kittest::Harness<'static, S>) -> String {
+    use egui_kittest::kittest::NodeT;
+    let mut out = String::new();
+    let mut stack = vec![h.root()];
+    while let Some(n) = stack.pop() {
+        let a = n.accesskit_node();
+        out.push_str(&a.label().unwrap_or_default());
+        out.push('\n');
+        out.push_str(&a.value().unwrap_or_default());
+        out.push('\n');
+        stack.extend(n.children());
+    }
+    out.to_lowercase()
+}
+
+/// FAL-665: a flag in the rail reads as a Finding: what was observed, other explanations, what
+/// to check next, what it doesn't prove and its method version, with no score, total or risk
+/// figure anywhere on the page.
+#[test]
+fn a_flag_card_reads_as_a_finding_with_no_score() {
+    let (name, bytes) = crate::sample::docx();
+    let mut h = review_page(Some((&name, &bytes)));
+    let flagged = h.state().0.flags.len();
+    assert!(flagged > 0);
+    for _ in 0..4 {
+        h.step();
+    }
+    let text = page_text(&h);
+    for part in ["observed", "other explanations", "check next", "what this does not prove", "resolution", "method findings.v1", "assistive workflow"] {
+        assert!(text.contains(part), "{part} is missing from the rail");
+    }
+    for banned in ["risk", "score", "likelihood", "probability", "confidence", "out of"] {
+        assert!(!text.contains(banned), "the page says {banned:?}");
+    }
+    // Every finding of the sample's flags has its alternatives and check.
+    let (review, _) = h.state();
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
+    for f in &review.flags {
+        let finding = crate::rail::finding_of(review, l, f);
+        assert!(finding.alternatives.len() >= 2 && !finding.next_check.is_empty() && !finding.not_proven.is_empty());
+    }
+}
+
+/// FAL-665: the teacher's resolution and note are kept with their comments: listed with them,
+/// drawn on the page and written into the review copy; Open with no note takes it away.
+#[test]
+fn a_resolution_and_its_note_survive_in_the_list_and_the_review_copy() {
+    use crate::findings::Resolution;
+    use crate::flags::FlagKind;
+    let (name, bytes) = crate::sample::docx();
+    let mut app = review_app();
+    let mut review = Review::default();
+    review.open(&mut app, &name, &bytes);
+    let seq = review.flags.iter().find(|f| f.kind == FlagKind::AiPhrase).map(|f| f.seq).unwrap_or_else(|| panic!("no flag"));
+    assert_eq!(review.resolution_of(seq, FlagKind::AiPhrase), (Resolution::Open, ""));
+    review.set_resolution(seq, FlagKind::AiPhrase, Resolution::NeedsConversation, "Student to bring the notes.");
+    assert_eq!(review.resolution_of(seq, FlagKind::AiPhrase), (Resolution::NeedsConversation, "Student to bring the notes."));
+    // A change of mind replaces it; it is not a second comment, and the flag isn't "promoted".
+    review.set_resolution(seq, FlagKind::AiPhrase, Resolution::Explained, "The student quoted a source.");
+    assert_eq!(review.comments.len(), 1);
+    assert!(!review.promoted(seq));
+    // Listed with the comments, and drawn on the page.
+    review.tab = crate::review::RailTab::Comments;
+    review.logic(&mut app);
+    assert_eq!(app.session.doc.comments.len(), 1);
+    let on_page = app.session.doc.comments.values().next().map(|c| app.session.doc.plain_text(StoryRef::Part(c.part))).unwrap_or_default();
+    assert!(on_page.contains("Explained") && on_page.contains("The student quoted a source."), "{on_page}");
+    // In the review copy.
+    let l = review.loaded.as_ref().unwrap_or_else(|| panic!("loaded"));
+    let (copy, out) = crate::export::review_copy(l, &review.comments, None).unwrap_or_else(|e| panic!("{e}"));
+    let doc = wordcraft_engine::io::open_bytes(&copy, &out).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(doc.comments.len(), 1);
+    let kept = doc.comments.values().next().map(|c| doc.plain_text(StoryRef::Part(c.part))).unwrap_or_default();
+    assert!(kept.contains("Finding") && kept.contains("Explained") && kept.contains("The student quoted a source."), "{kept}");
+    // Back to Open with no note: nothing is kept.
+    review.set_resolution(seq, FlagKind::AiPhrase, Resolution::Open, "");
+    assert!(review.comments.is_empty());
+}
+
+/// FAL-665: the resolution buttons set the resolution through the rail.
+#[test]
+fn the_rail_sets_a_resolution() {
+    use egui_kittest::kittest::Queryable;
+    let (name, bytes) = crate::sample::docx();
+    let mut h = review_page_sized(Some((&name, &bytes)), 3000.0);
+    h.get_all_by_label("Dismissed").next().unwrap_or_else(|| panic!("no button")).click();
+    for _ in 0..4 {
+        h.step();
+    }
+    let n = h.state().0.comments.iter().filter(|c| c.resolution == Some(crate::findings::Resolution::Dismissed)).count();
+    assert_eq!(n, 1);
 }

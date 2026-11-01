@@ -69,3 +69,7 @@ Each finding includes `ruleId`, `ruleVersion`, category, exact source event ID/f
 - Any pattern module requires academic/teacher QA before being enabled by default. The minimum MVP can ship with objectively recorded actions only.
 
 **Useful sources:** https://github.com/winkjs/wink-nlp, https://github.com/components/jsdiff, https://huggingface.co/docs/transformers.js/en/index, https://www.w3.org/TR/clipboard-apis/.
+
+## Findings (FAL-665)
+
+Every rule above reaches the reviewer as a *Finding*: observed, record, alternatives, next check, what it does not prove, method version and the teacher's resolution. Shape and wording rules: `docs/adr/0006-findings.md`. A new check fills the same shape; it adds no score.

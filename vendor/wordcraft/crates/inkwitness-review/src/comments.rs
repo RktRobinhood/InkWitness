@@ -48,6 +48,19 @@ pub struct TeacherComment {
     pub from_flag: Option<(u64, FlagKind)>,
     /// When it was written (RFC 3339), as the comment's date in the review copy.
     pub written: String,
+    /// The teacher's resolution of the finding at `from_flag` (FAL-665): this is then the
+    /// resolution and its note, not a comment of its own.
+    pub resolution: Option<crate::findings::Resolution>,
+}
+
+impl TeacherComment {
+    /// The text the comment has on the page and in the review copy.
+    pub fn shown_text(&self) -> String {
+        match (self.resolution, self.from_flag) {
+            (Some(r), Some((_, k))) => crate::findings::resolution_text(k, r, &self.text),
+            _ => self.text.clone(),
+        }
+    }
 }
 
 /// A comment being written or edited.
