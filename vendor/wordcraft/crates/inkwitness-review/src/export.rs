@@ -36,7 +36,7 @@ pub fn decorate(doc: &mut Document, st: &State, notes: &[TeacherComment], map: O
         let Some((a, b)) = n.anchor.as_ref().and_then(|x| comments::locate(st, x)) else { continue };
         let (a, b) = place(map, &a, &b);
         let Some(id) = wordcraft_doc::free_id(doc.comments.keys().next_back().copied(), doc.comments.keys().copied(), 0) else { break };
-        let blocks = n.text.lines().take(200).map(|l| para_block(wordcraft_doc::Paragraph::with_text(l, Default::default()))).collect();
+        let blocks = n.shown_text().lines().take(200).map(|l| para_block(wordcraft_doc::Paragraph::with_text(l, Default::default()))).collect();
         let Ok(part) = doc.try_add_part(PartKind::Comment, blocks) else { continue };
         doc.comments.insert(
             id,

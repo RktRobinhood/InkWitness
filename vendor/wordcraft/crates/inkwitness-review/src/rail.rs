@@ -9,6 +9,7 @@ use wordcraft_ui_egui::theme::critic::{Accents, Tint};
 use wordcraft_ui_egui::theme::{Tokens, medium, regular, semibold};
 
 use crate::card::{self, Action, Card, Kind, Look, count, focus_ring};
+use crate::findings::{Finding, Resolution};
 use crate::flags::{Flag, FlagKind};
 use crate::review::{Consistency, Loaded, RailTab, Review};
 
@@ -76,11 +77,21 @@ pub enum RailAction {
     ChangeName,
 }
 
+/// A teacher's change to a finding's resolution or note (applied by [`Review::set_resolution`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Change {
+    pub seq: u64,
+    pub kind: FlagKind,
+    pub resolution: Resolution,
+    pub note: String,
+}
+
 /// Draw the rail's contents.
 pub fn show(ui: &mut Ui, review: &mut Review, app: &WordApp) -> Option<RailAction> {
     let t = Tokens::get(ui.ctx());
     let a = Accents::get(ui.ctx());
     let mut act = None;
+    let mut change = None;
     ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
     ui.add_space(4.0);
     ui.label(RichText::new("Observations & notes").font(semibold(16.0)).color(t.text));
@@ -108,6 +119,9 @@ pub fn show(ui: &mut Ui, review: &mut Review, app: &WordApp) -> Option<RailActio
                 flag_look(&mut c, f, &review.flags, &a);
             }
             take(&mut act, card::show(ui, &c, Look { current: true, expanded: true }));
+            for f in review.flags.iter().filter(|f| f.seq == l.state.seq) {
+                finding_block(ui, review, l, f, "now", &t, &a, &mut change);
+            }
         }
         None => note(
             ui,
@@ -143,10 +157,14 @@ pub fn show(ui: &mut Ui, review: &mut Review, app: &WordApp) -> Option<RailActio
         }
     });
     match review.tab {
-        RailTab::Flags => flag_list(ui, review, l, &moments, &t, &a, &mut act),
+        RailTab::Flags => flag_list(ui, review, l, &moments, &t, &a, &mut act, &mut change),
         RailTab::Comments => comment_list(ui, review, l, &t, &a, &mut act),
     }
     ui.add_space(8.0);
+    review.typing |= ui.ctx().data_mut(|d| d.remove_temp::<bool>(egui::Id::new("inkwitness_finding_typing"))).unwrap_or(false);
+    if let Some(c) = change {
+        review.set_resolution(c.seq, c.kind, c.resolution, &c.note);
+    }
     act
 }
 
@@ -159,14 +177,13 @@ fn take(act: &mut Option<RailAction>, a: Option<Action>) {
     }
 }
 
-/// The flag's tint: the passages a teacher most needs to see (a large paste, chatbot wording, a
-/// history that stops) are the strongest.
+/// The flag's tint: a neutral one per kind. None is the colour of a corrupt history, so no flag
+/// reads as a verdict (FAL-665); the chip's icon and words tell the kinds apart.
 pub fn flag_tint(kind: FlagKind, a: &Accents) -> Tint {
     match kind {
-        FlagKind::LargePaste | FlagKind::AiPhrase | FlagKind::HistoryStops | FlagKind::OutsideAddition => a.corrupt,
-        FlagKind::Paste | FlagKind::LargeInsert => a.observation,
+        FlagKind::Paste | FlagKind::LargePaste | FlagKind::LargeInsert | FlagKind::AiPhrase | FlagKind::OutsideAddition => a.observation,
         FlagKind::LargeDelete => a.word_comment,
-        FlagKind::Imported => a.missing,
+        FlagKind::Imported | FlagKind::HistoryStops => a.missing,
     }
 }
 
@@ -189,7 +206,16 @@ fn flag_look(c: &mut Card, f: &Flag, all: &[Flag], a: &Accents) {
 }
 
 /// A card for each flagged moment, in the order they happened.
-fn flag_list(ui: &mut Ui, review: &Review, l: &Loaded, moments: &[u64], t: &Tokens, a: &Accents, act: &mut Option<RailAction>) {
+fn flag_list(
+    ui: &mut Ui,
+    review: &Review,
+    l: &Loaded,
+    moments: &[u64],
+    t: &Tokens,
+    a: &Accents,
+    act: &mut Option<RailAction>,
+    change: &mut Option<Change>,
+) {
     ui.label(RichText::new("Teacher only. A flag says what happened, never why.").font(regular(11.5)).color(t.text_dim));
     if moments.is_empty() {
         note(ui, t, a, "Nothing in this history is flagged: no pastes, large insertions or deletions, and no text that was already there.".into());
@@ -202,7 +228,88 @@ fn flag_list(ui: &mut Ui, review: &Review, l: &Loaded, moments: &[u64], t: &Toke
         c.promoted = review.promoted(seq);
         c.promote = !c.promoted;
         take(act, card::show(ui, &c, Look { current: seq == l.state.seq, expanded: true }));
+        for f in review.flags.iter().filter(|f| f.seq == seq) {
+            finding_block(ui, review, l, f, "list", t, a, change);
+        }
     }
+}
+
+/// The finding for flag `f`, as the rail reads it ([`crate::findings`]): what was observed, the
+/// supporting record (the card above), other explanations, what to check next, what it doesn't
+/// prove, its method version and the teacher's resolution with a note. No score, no total.
+pub fn finding_of(review: &Review, l: &Loaded, f: &Flag) -> Finding {
+    let card = event_card(l, f.seq, None);
+    let record = card
+        .map(|c| [Some(format!("Event {}", f.seq)), c.recorded, c.elapsed, c.size].into_iter().flatten().collect::<Vec<_>>().join(" · "))
+        .unwrap_or_else(|| format!("Event {}", f.seq));
+    let mut finding = Finding::of(f, record);
+    finding.resolution = review.resolution_of(f.seq, f.kind).0;
+    finding
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finding_block(ui: &mut Ui, review: &Review, l: &Loaded, f: &Flag, scope: &str, t: &Tokens, a: &Accents, change: &mut Option<Change>) {
+    let finding = finding_of(review, l, f);
+    let (res, note) = review.resolution_of(f.seq, f.kind);
+    let tint = flag_tint(f.kind, a);
+    egui::Frame::NONE.fill(a.card).stroke(Stroke::new(1.0, t.border)).corner_radius(CornerRadius::same(8)).inner_margin(10).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+        let head = |ui: &mut Ui, words: &str| {
+            ui.label(RichText::new(words).font(semibold(12.0)).color(t.text));
+        };
+        let line = |ui: &mut Ui, words: &str| {
+            ui.add(egui::Label::new(RichText::new(words).font(regular(12.0)).color(t.text_dim)).wrap());
+        };
+        ui.horizontal_wrapped(|ui| {
+            card::chip(ui, f.kind.icon(), &format!("Finding · {}", f.kind.name()), tint);
+        });
+        head(ui, "Observed");
+        line(ui, &finding.observed);
+        head(ui, "Other explanations");
+        for alt in &finding.alternatives {
+            line(ui, &format!("• {alt}"));
+        }
+        head(ui, "Check next");
+        for c in &finding.next_check {
+            line(ui, &format!("• {c}"));
+        }
+        head(ui, "What this does not prove");
+        line(ui, finding.not_proven);
+        ui.label(RichText::new(format!("{} · method {}", finding.rule, finding.method)).font(regular(11.0)).color(t.text_dim));
+        head(ui, "Resolution");
+        ui.horizontal_wrapped(|ui| {
+            for r in Resolution::ALL {
+                let on = r == res;
+                let b = ui.add(
+                    egui::Button::new(RichText::new(r.name()).font(medium(12.0)).color(if on { t.on_accent } else { t.text }))
+                        .fill(if on { t.accent } else { a.card })
+                        .stroke(Stroke::new(1.0, if on { t.accent } else { t.border }))
+                        .corner_radius(CornerRadius::same(12)),
+                );
+                focus_ring(ui, &b, a);
+                if b.on_hover_text("Kept with your comments, and in the review copy").clicked() && !on {
+                    *change = Some(Change { seq: f.seq, kind: f.kind, resolution: r, note: note.to_string() });
+                }
+            }
+        });
+        let mut text = note.to_string();
+        let edit = ui.add(
+            egui::TextEdit::multiline(&mut text)
+                .id(egui::Id::new(("inkwitness_finding_note", scope, f.seq, f.kind.rule())))
+                .hint_text("Note on this finding (optional)")
+                .desired_rows(2)
+                .desired_width(f32::INFINITY),
+        );
+        focus_ring(ui, &edit, a);
+        if edit.has_focus() {
+            // The dock's shortcuts wait while a box has the keyboard.
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("inkwitness_finding_typing"), true));
+        }
+        if edit.changed() {
+            *change = Some(Change { seq: f.seq, kind: f.kind, resolution: res, note: text });
+        }
+    });
 }
 
 /// The teacher's comments and highlights, and the review copy.
@@ -252,6 +359,11 @@ fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accent
                     let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
                     ui.painter().rect_filled(r, CornerRadius::same(3), crate::toolbar::page_colour(h));
                 }
+                None if c.resolution.is_some() => {
+                    if let (Some(r), Some((_, k))) = (c.resolution, c.from_flag) {
+                        card::chip(ui, k.icon(), &format!("Finding resolution · {}", r.name()), flag_tint(k, a));
+                    }
+                }
                 None => {
                     card::chip(ui, "comment", "Teacher comment", tc);
                     if let Some((_, k)) = c.from_flag {
@@ -267,7 +379,9 @@ fn comment_list(ui: &mut Ui, review: &Review, l: &Loaded, t: &Tokens, a: &Accent
                 ui.add(egui::Label::new(RichText::new(why).font(regular(11.5)).color(t.text_dim)).wrap());
             }
             if c.highlight.is_none() {
-                ui.add(egui::Label::new(RichText::new(&c.text).font(regular(13.0)).color(t.text)).wrap());
+                if !c.text.is_empty() || c.resolution.is_none() {
+                    ui.add(egui::Label::new(RichText::new(&c.text).font(regular(13.0)).color(t.text)).wrap());
+                }
             }
             if let Some((s, e)) = c.seq.and_then(|s| l.replay.event(s).map(|e| (s, e))) {
                 let el = e.get("elapsedMonotonicMs").and_then(Value::as_u64).map(elapsed).unwrap_or_default();
