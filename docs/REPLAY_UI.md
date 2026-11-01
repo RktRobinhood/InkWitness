@@ -38,7 +38,8 @@ The rail ("Observations & notes") has three parts:
 
 - a header with the InkWitness Review mark, the file name, the student and the assessment (or "not entered"), and a history badge (Consistent, External changes, Corrupt or Missing, each with an icon and words), followed by the quiet line "Unsigned local history: not proof of authorship.";
 - the event navigation, which FAL-477 moves to the bottom dock;
-- the card for the moment shown, then one card for each observation.
+- the card for the moment shown, then one card for each observation;
+- when the file's text differs from its history's last state, a final section "Changed outside InkWitness (not observed)" (FAL-664, [ADR 0005](adr/0005-changes-outside.md)): the file opens on it, the page shows the file as it stands with the added text marked, and the rail lists what was added and removed, with flags like a paste for large additions and a Promote to comment for each change. It is not an event and says the timing and source are unknown.
 
 ### Promotion (NOT BUILT, T3)
 

@@ -62,6 +62,9 @@ pub enum FlagKind {
     AiPhrase,
     /// Where a corrupt history stops replaying.
     HistoryStops,
+    /// `wa.outside.large-addition.v1`: a long passage in a file changed outside InkWitness
+    /// ([`crate::outside`]), flagged the way a large paste is.
+    OutsideAddition,
 }
 
 impl FlagKind {
@@ -75,6 +78,7 @@ impl FlagKind {
             FlagKind::Imported => "wa.import.unobserved.v1",
             FlagKind::AiPhrase => "wa.text.template-marker.v1",
             FlagKind::HistoryStops => "wa.history.stops.v1",
+            FlagKind::OutsideAddition => "wa.outside.large-addition.v1",
         }
     }
 
@@ -88,13 +92,14 @@ impl FlagKind {
             FlagKind::Imported => "Text already there",
             FlagKind::AiPhrase => "AI-style phrase",
             FlagKind::HistoryStops => "History stops",
+            FlagKind::OutsideAddition => "Large addition outside",
         }
     }
 
     /// The chip's [`wordcraft_ui_egui::icons`] name.
     pub fn icon(self) -> &'static str {
         match self {
-            FlagKind::Paste | FlagKind::LargePaste => "paste",
+            FlagKind::Paste | FlagKind::LargePaste | FlagKind::OutsideAddition => "paste",
             FlagKind::LargeInsert => "addText",
             FlagKind::LargeDelete => "eraser",
             FlagKind::Imported => "open",
@@ -122,6 +127,9 @@ impl FlagKind {
                 "The passage contains wording that chatbot answers often use. A lead for a conversation, not a finding: people quote and reuse this wording for many reasons."
             }
             FlagKind::HistoryStops => "The recorded history stops replaying here. Later events can't be shown.",
+            FlagKind::OutsideAddition => {
+                "A long passage is in the file that the history doesn't end with. It was added where InkWitness wasn't recording, so when it was added and where it came from are both unknown. Worth asking."
+            }
         }
     }
 }
@@ -304,6 +312,7 @@ mod tests {
             FlagKind::Imported,
             FlagKind::AiPhrase,
             FlagKind::HistoryStops,
+            FlagKind::OutsideAddition,
         ];
         for k in all {
             for text in [k.name(), k.meaning()] {

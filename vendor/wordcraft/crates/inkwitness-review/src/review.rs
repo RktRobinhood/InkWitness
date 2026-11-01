@@ -29,6 +29,7 @@ use wordcraft_ui_egui::WordApp;
 use crate::comments::{self, Draft, TeacherComment};
 use crate::edits::{Edits, Map};
 use crate::flags::{self, Flag};
+use crate::outside::Outside;
 use crate::player::{self, DockAction, Player, Timeline};
 use crate::rail::RailAction;
 
@@ -63,7 +64,9 @@ impl Consistency {
             Consistency::Consistent => {
                 "Local history consistent: every event rebuilds the recorded document (unsigned; not proof of authorship)".into()
             }
-            Consistency::ExternallyChanged => "External changes: the file's text differs from its last recorded state".into(),
+            Consistency::ExternallyChanged => {
+                "External changes: the file's text differs from its last recorded state, so the file as it stands is shown after the history".into()
+            }
             Consistency::Corrupt(why) => format!("History corrupt: {why}"),
             Consistency::Missing => "History missing: this file has no InkWitness edit history".into(),
         }
@@ -85,8 +88,12 @@ pub struct Loaded {
     pub first: u64,
     /// The shown event's range in the shown state, if it has one.
     pub mark: Option<Resolved>,
-    /// The last state the history replays to: teacher comments are anchored in it.
+    /// The last state: teacher comments are anchored in it. It is the last state the history
+    /// replays to, or the file's document when that was changed after ([`Loaded::outside`]).
     pub last: State,
+    /// What the file has that its history doesn't end with ([`crate::outside`]): set when the
+    /// history replays but the file's text differs from its last recorded state.
+    pub outside: Option<Outside>,
     /// The saved file's pictures, by key. The history records where a picture goes but not the
     /// picture, so the page takes it from the file ([`Loaded::with_pictures`]).
     pub media: BTreeMap<String, Arc<Vec<u8>>>,
@@ -145,6 +152,9 @@ pub struct Review {
     pub edit_note: Option<String>,
     /// Which list the rail shows under the moment shown.
     pub tab: RailTab,
+    /// The page shows the file as it stands after the history ([`Loaded::outside`]), not a
+    /// recorded moment.
+    pub at_outside: bool,
     /// A short message for the reviewer (a download started, or couldn't).
     pub notice: Option<String>,
 }
@@ -193,8 +203,13 @@ impl Review {
                 self.draft = None;
                 self.notice = None;
                 self.tab = RailTab::Flags;
+                let outside = l.outside.is_some();
                 self.loaded = Some(l);
                 self.seek(app, last);
+                // A file changed after its history ends where the changes are.
+                if outside {
+                    self.show_outside(app);
+                }
             }
             Err(e) => {
                 app.status(e.clone());
@@ -208,7 +223,8 @@ impl Review {
     pub fn seek(&mut self, app: &mut WordApp, seq: u64) {
         let Some(l) = &mut self.loaded else { return };
         let seq = seq.min(l.replayable);
-        let next = if seq >= l.state.seq {
+        // From the file as it stands, a recorded moment is replayed from its checkpoint.
+        let next = if seq >= l.state.seq && !self.at_outside {
             let mut st = l.state.clone();
             l.replay.advance(&mut st, seq).map(|()| st)
         } else {
@@ -221,8 +237,27 @@ impl Review {
                 return;
             }
         }
+        self.at_outside = false;
         l.mark = l.replay.event(l.state.seq).and_then(|e| event_range(&l.state, e));
         self.put(app);
+    }
+
+    /// Show the file as it stands, after the last recorded event, with what was added outside
+    /// InkWitness marked on the page. Does nothing when the file matches its history.
+    pub fn show_outside(&mut self, app: &mut WordApp) {
+        let Some(l) = &mut self.loaded else { return };
+        let Some(o) = &l.outside else { return };
+        l.state = o.state.clone();
+        l.mark = None;
+        self.at_outside = true;
+        self.player.pause();
+        self.put(app);
+    }
+
+    /// Whether the document shown is the final one: the end of the history, or the file as it
+    /// stands when that differs. The teacher's edits are made on it.
+    pub fn final_shown(&self) -> bool {
+        self.loaded.as_ref().is_some_and(|l| l.state.seq == l.replayable && (l.outside.is_none() || self.at_outside))
     }
 
     /// Put the shown state, with the teacher's comments and highlights, on the page: at the end
@@ -236,7 +271,7 @@ impl Review {
                 l.with_pictures(&mut doc);
                 self.edits = Some(Edits::new(doc));
             }
-            let edits = self.edits.as_ref().filter(|_| l.state.seq == l.replayable);
+            let edits = self.edits.as_ref().filter(|_| self.final_shown());
             self.map = edits.and_then(|e| Map::new(&l.state.doc, e));
             let (doc, added) = show(app, l, edits, self.map.as_ref(), &self.comments);
             self.shown = Some(doc);
@@ -254,7 +289,7 @@ impl Review {
     /// Whether the teacher is editing: Full ribbon on, their name typed, and the last recorded
     /// moment shown. Edits apply to the final document only.
     pub fn editing(&self, app: &WordApp) -> bool {
-        app.viewer_ribbon && !self.teacher.trim().is_empty() && self.loaded.as_ref().is_some_and(|l| l.state.seq == l.replayable)
+        app.viewer_ribbon && !self.teacher.trim().is_empty() && self.final_shown()
     }
 
     /// Keep what the teacher changed on the page as their edits: the page's document without the
@@ -299,6 +334,17 @@ impl Review {
     fn paint_highlights(&self, app: &mut WordApp) {
         app.canvas.review_highlights.clear();
         let (Some(l), Some(shown)) = (&self.loaded, &self.shown) else { return };
+        // What was added outside InkWitness, on the file as it stands.
+        if self.at_outside
+            && let Some(o) = &l.outside
+        {
+            for h in o.hunks.iter().filter(|h| !h.added.trim().is_empty()) {
+                let Some((a, b)) = h.anchor.as_ref().and_then(|x| comments::locate(&l.state, x)) else { continue };
+                let (a, b) = crate::edits::place(self.map.as_ref(), &a, &b);
+                let (a, b) = (crate::export::to_shown(shown, &self.added, &a), crate::export::to_shown(shown, &self.added, &b));
+                app.canvas.review_highlights.push((a, b, crate::toolbar::page_colour(wordcraft_doc::props::Highlight::Turquoise)));
+            }
+        }
         for c in &self.comments {
             let (Some(h), Some(anchor)) = (c.highlight, &c.anchor) else { continue };
             let Some((a, b)) = comments::locate(&l.state, anchor) else { continue };
@@ -388,6 +434,11 @@ impl Review {
     /// The side note's lines for the shown event.
     pub fn note(&self) -> Vec<String> {
         let Some(l) = &self.loaded else { return Vec::new() };
+        if self.at_outside
+            && let Some(o) = &l.outside
+        {
+            return vec![o.summary(), "No event: InkWitness has no record of how or when this changed".into()];
+        }
         let Some(e) = l.replay.event(l.state.seq) else {
             return vec!["Before the first recorded event".into()];
         };
@@ -543,6 +594,8 @@ impl Review {
         match r {
             RailAction::GoTo(s) => self.go(app, s),
             RailAction::Promote(s) => self.promote(app, s),
+            RailAction::ShowOutside => self.show_outside(app),
+            RailAction::PromoteOutside(i) => self.promote_outside(app, i),
             RailAction::Save => self.save_draft(),
             RailAction::Discard => self.draft = None,
             RailAction::Edit(id) => {
@@ -634,6 +687,22 @@ impl Review {
         });
     }
 
+    /// Promote change `i` made outside InkWitness to a comment draft pre-filled from what changed,
+    /// anchored on the added text in the file as it stands.
+    pub fn promote_outside(&mut self, app: &mut WordApp, i: usize) {
+        self.show_outside(app);
+        let Some(h) = self.loaded.as_ref().and_then(|l| l.outside.as_ref()).and_then(|o| o.hunks.get(i)) else { return };
+        self.draft = Some(Draft {
+            editing: None,
+            text: crate::outside::promote_text(h, h.flags.first()),
+            anchor: h.anchor.clone(),
+            moved: false,
+            seq: None,
+            from_flag: None,
+            focus: true,
+        });
+    }
+
     /// Save the draft as a teacher comment (an edit replaces the comment's text).
     pub fn save_draft(&mut self) {
         let Some(d) = self.draft.take() else { return };
@@ -688,7 +757,7 @@ pub fn load(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
     if bytes.len() > MAX_FILE_BYTES {
         return Err(format!("{name} is larger than {} MB", MAX_FILE_BYTES >> 20));
     }
-    let doc = wordcraft_engine::io::open_bytes(name, bytes).map_err(|e| format!("{name}: {e}"))?;
+    let mut doc = wordcraft_engine::io::open_bytes(name, bytes).map_err(|e| format!("{name}: {e}"))?;
     let env = match envelope::extract(&doc) {
         Ok(Some(env)) => env,
         // No history: the document is shown as saved, with nothing to replay.
@@ -721,9 +790,17 @@ pub fn load(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
     };
     let replayable = state.seq;
     let first = writing_starts(replay.events(), &start_digest, replayable);
-    let last = state.clone();
-    let media = doc.media;
-    Ok(Loaded { name: name.to_string(), student, assessment, replay, state, consistency, replayable, first, mark: None, last, media })
+    // The file's own document, as it stands, replaces the recorded end as the final one when
+    // their text differs; its evidence part isn't part of the document.
+    let media = std::mem::take(&mut doc.media);
+    let outside = if consistency == Consistency::ExternallyChanged {
+        let _ = wordcraft_docx::remove_custom_xml_part(&mut doc, envelope::NAMESPACE);
+        Outside::new(&state, doc)
+    } else {
+        None
+    };
+    let last = outside.as_ref().map_or_else(|| state.clone(), |o| o.state.clone());
+    Ok(Loaded { name: name.to_string(), student, assessment, replay, state, consistency, replayable, first, mark: None, last, outside, media })
 }
 
 /// Where the writing starts: the last of the events at the start of `events` (up to `upto`) that
@@ -760,6 +837,7 @@ fn unrecorded(name: &str, doc: wordcraft_doc::Document) -> Result<Loaded, String
         first: 0,
         mark: None,
         last: State::unrecorded(doc_last),
+        outside: None,
         media: BTreeMap::new(),
     })
 }

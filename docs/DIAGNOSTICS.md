@@ -42,6 +42,7 @@ Record `clipboardTypes`, `pasteAt`, `gestureId`, inserted span (already part of 
 | `wa.clipboard.large-paste.v1` | >= 150 characters **or** >= 30 words in a single true paste | Highlighted event; prompt to inspect source |
 | `wa.edit.large-insert.v1` | >= 150 characters added in one committed action, without recorded clipboard gesture | Neutral 'large insertion; input mechanism undetermined' |
 | `wa.edit.large-delete.v1` | >= 150 visible text characters removed in one committed action | Neutral deletion; original passage retained in replay |
+| `wa.outside.large-addition.v1` | >= 150 characters **or** >= 30 words added in text that differs between the file and its history's last state (the same limits as a large paste) | Final section "Changed outside InkWitness (not observed)": flagged like a large paste, and says the timing and source are unknown. Exact chatbot wording in the added text also gives `wa.text.template-marker.v1` |
 | `wa.import.unobserved.v1` | Any text already present when document opened/imported | Unobserved starting text, not a paste/typing event |
 | `wa.source.winnowing.v1` | Locally supplied source match above explainable overlap threshold | Exact source excerpt + matching document range |
 | `wa.references.doi-format.v1` | DOI-like reference fails local syntax check | Needs reference review; no remote validity claim |
